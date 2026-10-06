@@ -5,7 +5,6 @@ Future work only. Nothing here is implemented; see
 
 | Phase | Title |
 | --- | --- |
-| 2 | NestJS controller discovery |
 | 3 | TypeScript AST and route extraction |
 | 4 | Deterministic Bruno generation |
 | 5 | Safe synchronization / reconciliation |

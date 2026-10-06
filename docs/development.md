@@ -29,9 +29,17 @@ silence lints; fix the code. `unwrap`/`expect` are linted (`clippy::unwrap_used`
   (`tests/common`) and run the actual binary via `CARGO_BIN_EXE_nestbruno`.
   They always pass `-C <tempdir>` and never depend on the working directory.
 
+### Permission tests and root
+
+Tests that rely on `chmod 000` (unreadable directories) cannot observe
+anything when run as root, because root bypasses mode bits; they detect this
+and return early. Run the test binaries as an unprivileged user (for example
+with `setpriv`) when verifying them in a root-only environment.
+
 ## Debugging
 
-`nestbruno --verbose <command>` prints extra diagnostics to stderr.
+`nestbruno --verbose <command>` prints extra diagnostics to stderr, including
+symlink notes and, for `discover`, the number of directories listed.
 `RUST_BACKTRACE=1` applies as usual to panics (there should be none).
 
 ## Profiling

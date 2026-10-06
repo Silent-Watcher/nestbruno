@@ -21,6 +21,7 @@ cargo install --path .
 ```sh
 nestbruno init     # write a nestbruno.toml with the defaults
 nestbruno check    # validate the configuration and project layout
+nestbruno discover # list the files that may contain controllers
 ```
 
 ## Supported capabilities
