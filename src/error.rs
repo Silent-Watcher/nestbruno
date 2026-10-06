@@ -1,0 +1,110 @@
+//! The single error type for NestBruno and its mapping to process exit codes.
+//!
+//! Fatal problems (bad configuration, missing project, I/O failures that make a
+//! command meaningless) are `Error`s. Problems confined to a single file are
+//! *not* errors; they are reported as [`crate::diag::Diagnostic`]s so that the
+//! rest of the project can still be processed.
+
+use std::path::PathBuf;
+
+/// Exit codes used by the CLI. `2` is reserved for usage errors, which clap
+/// reports itself.
+pub mod exit_code {
+    /// Unspecified runtime failure (I/O, unimplemented command).
+    pub const FAILURE: u8 = 1;
+    /// The configuration or the project layout is invalid.
+    pub const CONFIG: u8 = 3;
+}
+
+/// Fatal errors. Every message states what failed, where, and what to do.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("cannot access {}: {source}", path.display())]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("cannot write command output: {0}")]
+    Output(#[source] std::io::Error),
+
+    #[error("invalid configuration in {}: {source}", path.display())]
+    ConfigParse {
+        path: PathBuf,
+        #[source]
+        source: toml::de::Error,
+    },
+
+    #[error("invalid configuration in {}: {message}", path.display())]
+    ConfigInvalid { path: PathBuf, message: String },
+
+    #[error(
+        "no NestBruno project found at or above {}: add a nestbruno.toml, run `nestbruno init`, or pass --project <DIR>",
+        start.display()
+    )]
+    ProjectNotFound { start: PathBuf },
+
+    #[error(
+        "source directory {} does not exist or is not a directory: create it or set `source` in nestbruno.toml",
+        path.display()
+    )]
+    SourceDirMissing { path: PathBuf },
+
+    #[error("{} already exists: refusing to overwrite it", path.display())]
+    AlreadyExists { path: PathBuf },
+
+    #[error("`{command}` is not implemented yet (planned for phase {phase}, see docs/roadmap.md)")]
+    NotImplemented { command: &'static str, phase: u8 },
+}
+
+impl Error {
+    /// The process exit code for this error.
+    pub fn exit_code(&self) -> u8 {
+        match self {
+            Self::ConfigParse { .. }
+            | Self::ConfigInvalid { .. }
+            | Self::ProjectNotFound { .. }
+            | Self::SourceDirMissing { .. } => exit_code::CONFIG,
+            Self::Io { .. }
+            | Self::Output(_)
+            | Self::AlreadyExists { .. }
+            | Self::NotImplemented { .. } => exit_code::FAILURE,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configuration_errors_use_the_config_exit_code() {
+        let err = Error::ConfigInvalid {
+            path: PathBuf::from("nestbruno.toml"),
+            message: "bad".into(),
+        };
+        assert_eq!(err.exit_code(), exit_code::CONFIG);
+        let err = Error::SourceDirMissing {
+            path: PathBuf::from("src"),
+        };
+        assert_eq!(err.exit_code(), exit_code::CONFIG);
+    }
+
+    #[test]
+    fn runtime_errors_use_the_failure_exit_code() {
+        let err = Error::NotImplemented {
+            command: "sync",
+            phase: 5,
+        };
+        assert_eq!(err.exit_code(), exit_code::FAILURE);
+    }
+
+    #[test]
+    fn messages_name_the_offending_path() {
+        let err = Error::AlreadyExists {
+            path: PathBuf::from("a/nestbruno.toml"),
+        };
+        assert!(err.to_string().contains("a/nestbruno.toml"));
+    }
+}

@@ -1,0 +1,37 @@
+[package]
+name = "nestbruno"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Incrementally synchronizes NestJS controllers into a Bruno API collection"
+readme = "README.md"
+publish = false
+
+[lib]
+name = "nestbruno"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nestbruno"
+path = "src/main.rs"
+
+[dependencies]
+# CLI parsing: derive API keeps the command structure declarative.
+clap = { version = "4", features = ["derive"] }
+# Configuration file format (nestbruno.toml) and its typed deserialization.
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+# Error enum boilerplate (Display/Error/From). Pure derive macro, no runtime cost.
+thiserror = "2"
+
+[dev-dependencies]
+# Temporary project directories for filesystem and CLI integration tests.
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Unwrap/expect must be justified. Tests are exempt via clippy.toml.
+unwrap_used = "warn"
+expect_used = "warn"
