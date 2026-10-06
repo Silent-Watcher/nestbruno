@@ -23,6 +23,10 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 # Error enum boilerplate (Display/Error/From). Pure derive macro, no runtime cost.
 thiserror = "2"
+# Include/exclude glob matching. Compiles many patterns into one matcher and
+# matches paths as bytes (non-UTF-8 safe). std has no glob support; regex-based
+# matching would reimplement globset badly. Maintained by the ripgrep author.
+globset = "0.4.20"
 
 [dev-dependencies]
 # Temporary project directories for filesystem and CLI integration tests.

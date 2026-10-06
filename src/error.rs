@@ -14,6 +14,9 @@ pub mod exit_code {
     pub const FAILURE: u8 = 1;
     /// The configuration or the project layout is invalid.
     pub const CONFIG: u8 = 3;
+    /// The command finished, but some paths could not be processed (see the
+    /// `error:` diagnostics on stderr), so the result is incomplete.
+    pub const INCOMPLETE: u8 = 4;
 }
 
 /// Fatal errors. Every message states what failed, where, and what to do.
@@ -51,6 +54,24 @@ pub enum Error {
     )]
     SourceDirMissing { path: PathBuf },
 
+    #[error("invalid {kind} pattern {pattern:?} in the nestbruno.toml `{kind}` setting: {source}")]
+    InvalidPattern {
+        kind: &'static str,
+        pattern: String,
+        #[source]
+        source: globset::Error,
+    },
+
+    #[error(
+        "source directory {} resolves to {}, which is outside the project root {}: symlinks out of the project are not followed; set `source` to a directory inside the project",
+        configured.display(), resolved.display(), root.display()
+    )]
+    SourceOutsideProject {
+        configured: PathBuf,
+        resolved: PathBuf,
+        root: PathBuf,
+    },
+
     #[error("{} already exists: refusing to overwrite it", path.display())]
     AlreadyExists { path: PathBuf },
 
@@ -65,7 +86,9 @@ impl Error {
             Self::ConfigParse { .. }
             | Self::ConfigInvalid { .. }
             | Self::ProjectNotFound { .. }
-            | Self::SourceDirMissing { .. } => exit_code::CONFIG,
+            | Self::SourceDirMissing { .. }
+            | Self::InvalidPattern { .. }
+            | Self::SourceOutsideProject { .. } => exit_code::CONFIG,
             Self::Io { .. }
             | Self::Output(_)
             | Self::AlreadyExists { .. }
@@ -87,6 +110,12 @@ mod tests {
         assert_eq!(err.exit_code(), exit_code::CONFIG);
         let err = Error::SourceDirMissing {
             path: PathBuf::from("src"),
+        };
+        assert_eq!(err.exit_code(), exit_code::CONFIG);
+        let err = Error::SourceOutsideProject {
+            configured: PathBuf::from("src"),
+            resolved: PathBuf::from("/elsewhere"),
+            root: PathBuf::from("/project"),
         };
         assert_eq!(err.exit_code(), exit_code::CONFIG);
     }

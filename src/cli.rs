@@ -32,6 +32,8 @@ pub enum Command {
     Init,
     /// Validate the configuration and project layout.
     Check,
+    /// List the files that may contain NestJS controllers.
+    Discover,
     /// Synchronize NestJS routes into the Bruno collection.
     Sync,
     /// Watch the sources and synchronize on change.

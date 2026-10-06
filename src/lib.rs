@@ -7,5 +7,6 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod diag;
+pub mod discovery;
 pub mod error;
 pub mod project;

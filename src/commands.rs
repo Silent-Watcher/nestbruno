@@ -8,14 +8,25 @@ use std::path::PathBuf;
 use crate::cli::{Cli, Command};
 use crate::config::{CONFIG_FILE_NAME, CONFIG_TEMPLATE};
 use crate::diag::Reporter;
+use crate::discovery::discover_controllers;
 use crate::error::Error;
 use crate::project::Project;
 
+/// How a command that did not fail fatally ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Success,
+    /// Finished, but some paths could not be processed; the result is
+    /// incomplete (maps to a distinct exit code).
+    Incomplete,
+}
+
 /// Run the command selected on the command line.
-pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<(), Error> {
+pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outcome, Error> {
     match cli.command {
-        Command::Init => init(cli, out),
-        Command::Check => check(cli, out, reporter),
+        Command::Init => init(cli, out).map(|()| Outcome::Success),
+        Command::Check => check(cli, out, reporter).map(|()| Outcome::Success),
+        Command::Discover => discover(cli, out, reporter),
         Command::Sync => {
             open_project(cli, reporter)?;
             Err(Error::NotImplemented {
@@ -104,4 +115,27 @@ fn check(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<(), Erro
         writeln!(out, "ok")
     })();
     result.map_err(Error::Output)
+}
+
+fn discover(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outcome, Error> {
+    let project = open_project(cli, reporter)?;
+    let discovery = discover_controllers(&project)?;
+
+    for diagnostic in &discovery.diagnostics {
+        reporter.report(diagnostic);
+    }
+    reporter.verbose(format_args!(
+        "{} candidate file(s), {} directories read",
+        discovery.files.len(),
+        discovery.directories_read
+    ));
+
+    for file in &discovery.files {
+        writeln!(out, "{}", file.path.display()).map_err(Error::Output)?;
+    }
+    Ok(if discovery.is_incomplete() {
+        Outcome::Incomplete
+    } else {
+        Outcome::Success
+    })
 }

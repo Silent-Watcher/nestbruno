@@ -3,9 +3,9 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use nestbruno::cli::Cli;
-use nestbruno::commands;
+use nestbruno::commands::{self, Outcome};
 use nestbruno::diag::Reporter;
-use nestbruno::error::Error;
+use nestbruno::error::{Error, exit_code};
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -16,8 +16,11 @@ fn main() -> ExitCode {
     let flushed = stdout.flush();
 
     match result {
-        Ok(()) => match flushed {
-            Ok(()) => ExitCode::SUCCESS,
+        Ok(outcome) => match flushed {
+            Ok(()) => match outcome {
+                Outcome::Success => ExitCode::SUCCESS,
+                Outcome::Incomplete => ExitCode::from(exit_code::INCOMPLETE),
+            },
             Err(err) => finish_with_error(&Error::Output(err)),
         },
         Err(err) => finish_with_error(&err),
