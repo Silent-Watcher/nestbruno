@@ -36,6 +36,11 @@ impl TestProject {
         path
     }
 
+    /// Overwrite an existing file (or create it).
+    pub fn write_over(&self, rel: impl AsRef<Path>, contents: &str) {
+        fs::write(self.dir.path().join(rel), contents).expect("overwrite file");
+    }
+
     /// Run the real `nestbruno` binary with `-C <root>` and `args`.
     pub fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_nestbruno"))
@@ -53,4 +58,10 @@ pub fn stdout(output: &Output) -> String {
 
 pub fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+/// Run discovery through the library API, panicking on fatal errors.
+pub fn discover(project: &TestProject) -> nestbruno::discovery::Discovery {
+    let project = nestbruno::project::Project::open(project.root()).expect("open project");
+    nestbruno::discovery::discover_controllers(&project).expect("discover controllers")
 }
