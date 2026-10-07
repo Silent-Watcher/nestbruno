@@ -10,7 +10,9 @@ use crate::config::{CONFIG_FILE_NAME, CONFIG_TEMPLATE};
 use crate::diag::Reporter;
 use crate::discovery::discover_controllers;
 use crate::error::Error;
+use crate::nest::analyze_files;
 use crate::project::Project;
+use crate::route::{Controller, ParameterName};
 
 /// How a command that did not fail fatally ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +29,7 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
         Command::Init => init(cli, out).map(|()| Outcome::Success),
         Command::Check => check(cli, out, reporter).map(|()| Outcome::Success),
         Command::Discover => discover(cli, out, reporter),
+        Command::Routes => routes(cli, out, reporter),
         Command::Sync => {
             open_project(cli, reporter)?;
             Err(Error::NotImplemented {
@@ -138,4 +141,61 @@ fn discover(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outco
     } else {
         Outcome::Success
     })
+}
+
+/// Print every route, one block per route:
+///
+/// ```text
+/// GET /users/:id  UsersController.findOne  src/users/users.controller.ts:12:3
+///   @Param(id) #0
+/// ```
+///
+/// Controllers are emitted in discovery order, routes in source order.
+fn routes(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outcome, Error> {
+    let project = open_project(cli, reporter)?;
+    let discovery = discover_controllers(&project)?;
+    let analysis = analyze_files(&project, &discovery.files)?;
+
+    let diagnostics = discovery.diagnostics.iter().chain(&analysis.diagnostics);
+    for diagnostic in diagnostics {
+        reporter.report(diagnostic);
+    }
+    reporter.verbose(format_args!(
+        "{} file(s) analyzed, {} controller(s)",
+        discovery.files.len(),
+        analysis.controllers.len()
+    ));
+
+    for controller in &analysis.controllers {
+        write_routes(out, controller).map_err(Error::Output)?;
+    }
+    Ok(if discovery.is_incomplete() || analysis.is_incomplete() {
+        Outcome::Incomplete
+    } else {
+        Outcome::Success
+    })
+}
+
+fn write_routes(out: &mut dyn Write, controller: &Controller) -> std::io::Result<()> {
+    for route in &controller.routes {
+        writeln!(
+            out,
+            "{} {}  {}.{}  {}",
+            route.http_method, route.path, controller.name, route.method_name, route.source
+        )?;
+        for parameter in &route.parameters {
+            let name = match &parameter.name {
+                ParameterName::Unnamed => String::new(),
+                ParameterName::Named(name) => name.clone(),
+                ParameterName::Unresolved => "<unresolved>".to_owned(),
+            };
+            writeln!(
+                out,
+                "  @{}({name}) #{}",
+                parameter.kind.as_str(),
+                parameter.index
+            )?;
+        }
+    }
+    Ok(())
 }

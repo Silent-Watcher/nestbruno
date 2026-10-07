@@ -2,7 +2,7 @@
 name = "nestbruno"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.91"
 description = "Incrementally synchronizes NestJS controllers into a Bruno API collection"
 readme = "README.md"
 publish = false
@@ -27,8 +27,21 @@ thiserror = "2"
 # matches paths as bytes (non-UTF-8 safe). std has no glob support; regex-based
 # matching would reimplement globset badly. Maintained by the ripgrep author.
 globset = "0.4.20"
+# TypeScript parser (oxc, MIT). One parser for the whole project: it parses
+# TypeScript with decorators natively, recovers from errors, is arena allocated
+# (cheap to discard per file) and is in active, widespread use. std has no
+# parser; regexes are not allowed for semantic extraction. The four crates are
+# one release train and must be bumped together; 0.116 is the newest release
+# that builds on Rust 1.91, which is why rust-version is 1.91.
+oxc_allocator = "0.116"
+oxc_ast = "0.116"
+oxc_parser = "0.116"
+oxc_span = "0.116"
 
 [dev-dependencies]
+# Property-based tests for path composition and the analyzer's "never panics,
+# always deterministic" invariants, where examples cannot cover the input space.
+proptest = "1"
 # Temporary project directories for filesystem and CLI integration tests.
 tempfile = "3"
 

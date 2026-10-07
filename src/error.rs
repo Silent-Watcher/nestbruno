@@ -72,6 +72,9 @@ pub enum Error {
         root: PathBuf,
     },
 
+    #[error("cannot start the source analysis worker thread: {0}")]
+    AnalysisThread(#[source] std::io::Error),
+
     #[error("{} already exists: refusing to overwrite it", path.display())]
     AlreadyExists { path: PathBuf },
 
@@ -91,6 +94,7 @@ impl Error {
             | Self::SourceOutsideProject { .. } => exit_code::CONFIG,
             Self::Io { .. }
             | Self::Output(_)
+            | Self::AnalysisThread(_)
             | Self::AlreadyExists { .. }
             | Self::NotImplemented { .. } => exit_code::FAILURE,
         }

@@ -36,6 +36,8 @@ pub struct Diagnostic {
     pub severity: Severity,
     /// Path relative to the project root when known.
     pub path: Option<PathBuf>,
+    /// 1-based `(line, column)` within `path`, when known.
+    pub position: Option<(u32, u32)>,
     pub message: String,
 }
 
@@ -44,8 +46,16 @@ impl Diagnostic {
         Self {
             severity,
             path,
+            position: None,
             message: message.into(),
         }
+    }
+
+    /// Attach a 1-based line and column.
+    #[must_use]
+    pub fn at(mut self, line: u32, column: u32) -> Self {
+        self.position = Some((line, column));
+        self
     }
 }
 
@@ -53,7 +63,11 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: ", self.severity)?;
         if let Some(path) = &self.path {
-            write!(f, "{}: ", path.display())?;
+            write!(f, "{}", path.display())?;
+            if let Some((line, column)) = self.position {
+                write!(f, ":{line}:{column}")?;
+            }
+            f.write_str(": ")?;
         }
         f.write_str(&self.message)
     }
@@ -108,6 +122,12 @@ mod tests {
             "something odd",
         );
         assert_eq!(d.to_string(), "warning: src/a.ts: something odd");
+    }
+
+    #[test]
+    fn display_includes_position_after_the_path() {
+        let d = Diagnostic::new(Severity::Error, Some(PathBuf::from("a.ts")), "bad").at(3, 9);
+        assert_eq!(d.to_string(), "error: a.ts:3:9: bad");
     }
 
     #[test]

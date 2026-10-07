@@ -34,6 +34,8 @@ pub enum Command {
     Check,
     /// List the files that may contain NestJS controllers.
     Discover,
+    /// Print the routes extracted from the NestJS sources.
+    Routes,
     /// Synchronize NestJS routes into the Bruno collection.
     Sync,
     /// Watch the sources and synchronize on change.
