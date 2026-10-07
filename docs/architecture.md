@@ -13,6 +13,9 @@ components are marked *planned* and are not implemented.
 | `config.rs` | `nestbruno.toml` model, parsing and validation. |
 | `project.rs` | Project root discovery and the loaded `Project` (root + config). |
 | `discovery.rs` | Finds controller *candidate* files from configuration and paths. Reads no file contents, knows nothing about Bruno, Git or the CLI. |
+| `route.rs` | The route IR (`Controller`, `Route`, `HttpMethod`, ...) and `compose_path`. Independent of Bruno and of the parser. |
+| `nest/extract.rs` | Pure function `extract_controllers(file, source)`: oxc AST in, IR + diagnostics out. The only place that parses TypeScript. |
+| `nest/mod.rs` | `analyze_files`: bounded file reads, big-stack worker thread, per-file panic guard, aggregation. |
 | `diag.rs` | `Diagnostic`, `Severity`, and the stderr `Reporter`. |
 | `error.rs` | The fatal `Error` enum and exit-code mapping. |
 
@@ -62,8 +65,28 @@ TypeScript. Full semantics (precedence, symlinks, error policy) are in the
 module documentation of `discovery.rs` and in
 [phases/phase-02.md](phases/phase-02.md).
 
+## Route extraction
+
+```text
+Discovery.files ─▶ analyze_files (worker thread, large stack)
+                     per file: symlink_metadata ─▶ bounded read ─▶ UTF-8
+                               ─▶ oxc parse ─▶ semantic walk ─▶ Controller IR
+```
+
+- One read and one parse per file per run; the AST (arena allocated) is dropped
+  when the file's IR is built. Nothing is cached (Phase 6).
+- Syntax error ⇒ **no** routes from that file and one `error` diagnostic with
+  `file:line:col`. A recovered AST is never used, so routes are never silently
+  dropped from a half-parsed file.
+- IR ordering: discovery order (sorted paths), then source order of classes,
+  methods and parameters.
+- Unresolvable decorator arguments become `RoutePath::Unresolved` /
+  `ParameterName::Unresolved` plus a warning; nothing is evaluated or guessed.
+- Recognition is name based and conservative; see the module docs of
+  `nest/extract.rs` and [phases/phase-03.md](phases/phase-03.md).
+
 ## Planned components (not implemented)
 
-AST route extraction, Bruno generation, reconciliation,
+ Bruno generation, reconciliation,
 incremental synchronization, watch mode, Git integration. See
 [roadmap.md](roadmap.md).

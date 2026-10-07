@@ -22,6 +22,7 @@ cargo install --path .
 nestbruno init     # write a nestbruno.toml with the defaults
 nestbruno check    # validate the configuration and project layout
 nestbruno discover # list the files that may contain controllers
+nestbruno routes   # print the HTTP routes found in them
 ```
 
 ## Supported capabilities

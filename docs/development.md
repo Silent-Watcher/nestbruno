@@ -29,6 +29,12 @@ silence lints; fix the code. `unwrap`/`expect` are linted (`clippy::unwrap_used`
   (`tests/common`) and run the actual binary via `CARGO_BIN_EXE_nestbruno`.
   They always pass `-C <tempdir>` and never depend on the working directory.
 
+### Parser upgrades
+
+`oxc_*` crates must be upgraded together. After any upgrade, re-run the full
+suite in a **debug** build (`worst_case_nesting_at_the_size_limit_...` must not
+abort) and re-measure per-byte stack use if it fails; see security.md.
+
 ### Permission tests and root
 
 Tests that rely on `chmod 000` (unreadable directories) cannot observe
