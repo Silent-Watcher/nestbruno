@@ -1,0 +1,25 @@
+meta {
+  name: POST /auth/login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: inherit
+}
+
+headers {
+  ~x-trace-id: 
+}
+
+body:json {
+  {}
+}
+
+docs {
+  NestJS: AuthController.login
+  Source: src/auth/auth.controller.ts
+  @Body(): whole object, fields not inferred
+}

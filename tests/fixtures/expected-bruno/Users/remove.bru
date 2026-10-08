@@ -1,0 +1,20 @@
+meta {
+  name: DELETE /users/:id
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/users/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}
+
+docs {
+  NestJS: UsersController.remove
+  Source: src/users/users.controller.ts
+}

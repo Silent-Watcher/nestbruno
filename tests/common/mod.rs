@@ -41,6 +41,23 @@ impl TestProject {
         fs::write(self.dir.path().join(rel), contents).expect("overwrite file");
     }
 
+    /// Copy a directory tree (a fixture) into the project.
+    pub fn copy_tree(&self, from: &Path, to_rel: impl AsRef<Path>) {
+        fn copy(from: &Path, to: &Path) {
+            fs::create_dir_all(to).expect("create dir");
+            for entry in fs::read_dir(from).expect("read fixture dir") {
+                let entry = entry.expect("fixture entry");
+                let target = to.join(entry.file_name());
+                if entry.file_type().expect("file type").is_dir() {
+                    copy(&entry.path(), &target);
+                } else {
+                    fs::copy(entry.path(), target).expect("copy fixture file");
+                }
+            }
+        }
+        copy(from, &self.dir.path().join(to_rel));
+    }
+
     /// Run the real `nestbruno` binary with `-C <root>` and `args`.
     pub fn run(&self, args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_nestbruno"))
@@ -64,4 +81,36 @@ pub fn stderr(output: &Output) -> String {
 pub fn discover(project: &TestProject) -> nestbruno::discovery::Discovery {
     let project = nestbruno::project::Project::open(project.root()).expect("open project");
     nestbruno::discovery::discover_controllers(&project).expect("discover controllers")
+}
+
+/// Every regular file below `dir` as `(relative path with '/', content)`,
+/// sorted by path. Directories themselves are not listed.
+pub fn tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(base: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+        for entry in fs::read_dir(dir).expect("read dir") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                walk(base, &path, out);
+            } else {
+                let rel = path.strip_prefix(base).expect("under base");
+                out.push((
+                    rel.to_string_lossy().replace('\\', "/"),
+                    fs::read(&path).expect("read file"),
+                ));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if dir.exists() {
+        walk(dir, dir, &mut out);
+    }
+    out.sort();
+    out
+}
+
+/// Absolute path of a fixture under `tests/fixtures`.
+pub fn fixture(rel: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(rel)
 }

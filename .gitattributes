@@ -1,0 +1,3 @@
+# Golden Bruno fixtures are compared byte for byte: keep their exact line
+# endings and the (meaningful) trailing spaces after empty values like `~page: `.
+tests/fixtures/expected-bruno/** -text whitespace=-trailing-space

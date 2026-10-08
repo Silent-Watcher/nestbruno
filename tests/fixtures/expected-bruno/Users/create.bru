@@ -1,0 +1,21 @@
+meta {
+  name: POST /users
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {}
+}
+
+docs {
+  NestJS: UsersController.create
+  Source: src/users/users.controller.ts
+  @Body(): whole object, fields not inferred
+}

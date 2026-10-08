@@ -1,0 +1,21 @@
+meta {
+  name: GET /users
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/users
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~page: 
+}
+
+docs {
+  NestJS: UsersController.findAll
+  Source: src/users/users.controller.ts
+  @Query(): whole object, fields not inferred
+}

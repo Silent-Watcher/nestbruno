@@ -1,0 +1,27 @@
+meta {
+  name: PATCH /users/:id
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/users/:id
+  body: json
+  auth: inherit
+}
+
+params:path {
+  id: 
+}
+
+body:json {
+  {
+    "name": null,
+    "email": null
+  }
+}
+
+docs {
+  NestJS: UsersController.update
+  Source: src/users/users.controller.ts
+}

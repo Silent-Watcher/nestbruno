@@ -1,0 +1,16 @@
+meta {
+  name: OPTIONS /auth
+  type: http
+  seq: 3
+}
+
+options {
+  url: {{baseUrl}}/auth
+  body: none
+  auth: inherit
+}
+
+docs {
+  NestJS: AuthController.options
+  Source: src/auth/auth.controller.ts
+}

@@ -1,0 +1,21 @@
+meta {
+  name: GET /auth/:id
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/auth/:id
+  body: none
+  auth: inherit
+}
+
+params:path {
+  id: 
+}
+
+docs {
+  NestJS: AuthController.maybe
+  Source: src/auth/auth.controller.ts
+  Optional path parameter(s): id
+}
