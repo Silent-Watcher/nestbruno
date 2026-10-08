@@ -5,7 +5,6 @@ Future work only. Nothing here is implemented; see
 
 | Phase | Title |
 | --- | --- |
-| 4 | Deterministic Bruno generation |
 | 5 | Safe synchronization / reconciliation |
 | 6 | Incremental synchronization |
 | 7 | Watch mode |

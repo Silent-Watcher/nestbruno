@@ -29,6 +29,15 @@ silence lints; fix the code. `unwrap`/`expect` are linted (`clippy::unwrap_used`
   (`tests/common`) and run the actual binary via `CARGO_BIN_EXE_nestbruno`.
   They always pass `-C <tempdir>` and never depend on the working directory.
 
+### Bruno format changes
+
+Generated files are locked by the golden fixtures in `tests/fixtures`. If a
+generator change alters them, review the diff as an intentional format change.
+To re-verify against Bruno itself, parse the output with the npm package
+`@usebruno/lang` (`bruToJson`) and check that `jsonToBru(bruToJson(text))`
+equals the text; this was done for phase 4 but is not part of the offline
+suite.
+
 ### Parser upgrades
 
 `oxc_*` crates must be upgraded together. After any upgrade, re-run the full

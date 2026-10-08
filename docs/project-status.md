@@ -15,6 +15,11 @@
   `@Param/@Query/@Body/@Headers` parameters into a Bruno-independent route IR,
   with source locations, unresolved-value tracking and per-file diagnostics.
 
+- **Phase 4 (Bruno generation):** deterministic `.bru` files (one folder per
+  controller, one file per route), collision-safe naming, route identity,
+  safe atomic writer with an explicit existing-file policy. Output verified
+  against Bruno's own parser/serializer.
+
 ## Commands
 
 | Command | State |
@@ -23,6 +28,7 @@
 | `check` | Works: validates configuration and that the source directory exists. |
 | `discover` | Works: lists candidate controller files, one per line. Diagnostic/inspection command. |
 | `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format, not a stable machine interface). |
+| `generate [--force]` | Works: writes request files; existing differing files are left alone unless `--force`; nothing is ever deleted. |
 | `sync`, `watch` | Load the project, then fail with "not implemented". |
 
 ## Current limitations
@@ -34,9 +40,14 @@
   prefixes (`app.setGlobalPrefix`), versioning and `RouterModule` paths are
   not modelled, so extracted paths can differ from the running application's.
 - Sources over 256 KiB are skipped (reported as errors).
-- No Bruno functionality exists yet.
+- No synchronization: `generate` creates and (with `--force`) replaces files
+  but never merges, updates selectively or removes requests of deleted routes.
+- `@All`, unresolved/array paths and paths with `?`, `#`, whitespace or `{{`
+  are not generated; bodies are skeletons; no environment or `folder.bru` is
+  created (`baseUrl` must be defined in a Bruno environment).
+- Output verified with Bruno's parser library, not by opening the desktop app.
 - Discovery measurement so far: ad-hoc runs on synthetic trees (100,000-file
-  discovery; 5,000-controller extraction, see phase-02.md and phase-03.md). No benchmark suite exists yet (Phase 10).
+  discovery; 5,000-controller extraction, 5,000-file generation; see the phase documents). No benchmark suite exists yet (Phase 10).
 - CI is configured for Linux, macOS and Windows but has only been exercised
   locally on Linux.
 - No `LICENSE` file has been chosen yet (owner decision).

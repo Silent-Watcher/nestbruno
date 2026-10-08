@@ -16,6 +16,11 @@ components are marked *planned* and are not implemented.
 | `route.rs` | The route IR (`Controller`, `Route`, `HttpMethod`, ...) and `compose_path`. Independent of Bruno and of the parser. |
 | `nest/extract.rs` | Pure function `extract_controllers(file, source)`: oxc AST in, IR + diagnostics out. The only place that parses TypeScript. |
 | `nest/mod.rs` | `analyze_files`: bounded file reads, big-stack worker thread, per-file panic guard, aggregation. |
+| `bruno/mod.rs` | `generate(config, controllers)`: pure planner from route IR to desired files (`GeneratedRequest`). No filesystem, no parsing. |
+| `bruno/model.rs` | Bruno request model and IR-to-model mapping; validates all untrusted text. |
+| `bruno/serialize.rs` | Model to `.bru` text; refuses anything Bruno could misread. |
+| `bruno/naming.rs`, `bruno/identity.rs` | Deterministic safe names with collision handling; route identity and fingerprint. |
+| `bruno/writer.rs` | The only code that writes: containment, symlink refusal, overwrite policy, atomic files. |
 | `diag.rs` | `Diagnostic`, `Severity`, and the stderr `Reporter`. |
 | `error.rs` | The fatal `Error` enum and exit-code mapping. |
 
@@ -85,8 +90,22 @@ Discovery.files ─▶ analyze_files (worker thread, large stack)
 - Recognition is name based and conservative; see the module docs of
   `nest/extract.rs` and [phases/phase-03.md](phases/phase-03.md).
 
+## Bruno generation
+
+```text
+Analysis.controllers ─▶ generate()  ─▶ Vec<GeneratedRequest>   (pure, deterministic)
+                                            │
+                        write_collection() ◀┘  (safe atomic writes, overwrite policy)
+```
+
+The parser knows nothing about Bruno and the generator never reads source or
+existing `.bru` files; the route IR is the only boundary. Computing the desired
+state is separate from writing it, which is what reconciliation (Phase 5) and
+dry-run (Phase 9) need. Details, format verification and policies:
+[phases/phase-04.md](phases/phase-04.md).
+
 ## Planned components (not implemented)
 
- Bruno generation, reconciliation,
+Reconciliation,
 incremental synchronization, watch mode, Git integration. See
 [roadmap.md](roadmap.md).

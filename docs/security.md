@@ -22,6 +22,11 @@ not claim protections that are not implemented and tested.
 | Parser stack overflow (a stack overflow *aborts the process*) | Measured on the pinned parser: up to 1394 B of stack per input byte in debug builds on deeply nested input. Sources are capped at 256 KiB and parsed on a worker thread whose stack is 2048 B per cap byte (~512 MiB, lazily committed virtual memory). | tests feed worst-case nesting at the cap through the real path; mutation-checked (shrinking the stack makes the test abort) |
 | Panic inside the parser | Caught per file (`catch_unwind`); that file gets an `error` diagnostic, the run continues. | unit test of the guard (parser panics could not be provoked) |
 | Oversized / non-UTF-8 / non-regular source files | Rejected with a diagnostic; reads are bounded to the cap + 1 byte; `symlink_metadata` rejects symlinks and special files before opening. | integration tests |
+| Source text injected into `.bru` files (newlines opening `script:` blocks, `{{process.env.X}}` interpolation, `'''` values) | Control characters, Unicode line separators and `{{` rejected in the model; serializer re-validates and emits nothing on failure; body lines indented; JSON keys escaped. | unit + integration tests; mutation-checked; output parsed with Bruno's real parser |
+| Path traversal / unsafe names from class, method or route text | Names reduced to an ASCII alphabet; route text never used in paths; writer re-validates every component (`..`, separators, `:`, control chars, reserved names). | unit + integration tests |
+| Writing through symlinks / outside the collection | Collection path walked from the project root, symlinks refused at every level; existing symlink/dir targets never replaced. | unit + integration tests (unix) |
+| Unsafe overwrite of user work | Existing differing files untouched unless `--force`; `bruno.json` never overwritten; non-generated files never touched. | unit + integration tests |
+| Corrupt files after a crash | Temp file + `fsync` + no-clobber link / rename; no text on serialization failure. | unit tests |
 | Discovery writes or executes anything | It only lists directories and inspects file types; it never reads file contents. | by construction |
 | Shell injection | No command is ever built from project data. No subprocesses exist yet. | by construction |
 
@@ -29,11 +34,15 @@ not claim protections that are not implemented and tested.
 
 Documented here so they are designed in, not forgotten:
 
-- Output-path containment, atomic writes, overwrite protection (Phases 4-5).
+- Merge-aware overwrite protection and ownership of user fields (Phase 5).
 - Safe Git invocation without shell interpolation (Phase 8).
 - Bounded watcher event queues (Phase 7).
 
 ## Known gaps
+
+- Check-then-write races on the collection directory: another process could
+  swap a directory for a symlink between the check and the write. The parent
+  directory is not `fsync`ed.
 
 - The stack bound is **empirical** for the pinned oxc version (see above). A
   parser upgrade can change per-level stack use; the worst-case-nesting test
