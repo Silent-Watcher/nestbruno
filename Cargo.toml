@@ -23,6 +23,11 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 # Error enum boilerplate (Display/Error/From). Pure derive macro, no runtime cost.
 thiserror = "2"
+# Atomic file creation/replacement (temp file in the target directory, then
+# no-clobber link or rename). Hand-rolling unique temp names and the
+# no-clobber/replace persistence logic is error-prone; tempfile is mature,
+# ubiquitous and already a dev-dependency.
+tempfile = "3"
 # Include/exclude glob matching. Compiles many patterns into one matcher and
 # matches paths as bytes (non-UTF-8 safe). std has no glob support; regex-based
 # matching would reimplement globset badly. Maintained by the ripgrep author.
@@ -42,8 +47,6 @@ oxc_span = "0.116"
 # Property-based tests for path composition and the analyzer's "never panics,
 # always deterministic" invariants, where examples cannot cover the input space.
 proptest = "1"
-# Temporary project directories for filesystem and CLI integration tests.
-tempfile = "3"
 
 [lints.rust]
 unsafe_code = "forbid"

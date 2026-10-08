@@ -5,6 +5,8 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::bruno::generate;
+use crate::bruno::writer::{FileStatus, WriteReport, write_collection};
 use crate::cli::{Cli, Command};
 use crate::config::{CONFIG_FILE_NAME, CONFIG_TEMPLATE};
 use crate::diag::Reporter;
@@ -25,11 +27,12 @@ pub enum Outcome {
 
 /// Run the command selected on the command line.
 pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outcome, Error> {
-    match cli.command {
+    match &cli.command {
         Command::Init => init(cli, out).map(|()| Outcome::Success),
         Command::Check => check(cli, out, reporter).map(|()| Outcome::Success),
         Command::Discover => discover(cli, out, reporter),
         Command::Routes => routes(cli, out, reporter),
+        Command::Generate { force } => generate_command(cli, *force, out, reporter),
         Command::Sync => {
             open_project(cli, reporter)?;
             Err(Error::NotImplemented {
@@ -198,4 +201,78 @@ fn write_routes(out: &mut dyn Write, controller: &Controller) -> std::io::Result
         }
     }
     Ok(())
+}
+
+/// discover ─▶ analyze ─▶ generate (pure) ─▶ write.
+///
+/// Incomplete discovery or analysis does not stop generation (this command
+/// only ever creates or, with `--force`, replaces files, so a partial view
+/// cannot cause anything to be deleted) but is reflected in the exit code.
+fn generate_command(
+    cli: &Cli,
+    force: bool,
+    out: &mut dyn Write,
+    reporter: &Reporter,
+) -> Result<Outcome, Error> {
+    let project = open_project(cli, reporter)?;
+    let discovery = discover_controllers(&project)?;
+    let analysis = analyze_files(&project, &discovery.files)?;
+    let generation = generate(project.config(), &analysis.controllers);
+    // Nothing to write: do not create an empty collection directory.
+    let report = if generation.requests.is_empty() {
+        WriteReport::default()
+    } else {
+        write_collection(
+            project.root(),
+            &project.config().bruno,
+            &generation.requests,
+            force,
+        )?
+    };
+
+    let diagnostics = discovery
+        .diagnostics
+        .iter()
+        .chain(&analysis.diagnostics)
+        .chain(&generation.diagnostics)
+        .chain(&report.diagnostics);
+    let mut generation_failed = false;
+    for diagnostic in diagnostics {
+        reporter.report(diagnostic);
+    }
+    for diagnostic in generation.diagnostics.iter().chain(&report.diagnostics) {
+        generation_failed |= diagnostic.severity == crate::diag::Severity::Error;
+    }
+
+    for (path, status) in &report.files {
+        let label = match status {
+            FileStatus::Created => "created",
+            FileStatus::Overwritten => "overwritten",
+            FileStatus::Unchanged => "unchanged",
+            FileStatus::SkippedExisting => "skipped",
+            FileStatus::Failed => "failed",
+        };
+        reporter.verbose(format_args!("{label} {}", path.display()));
+    }
+    writeln!(
+        out,
+        "{} request(s): {} created, {} overwritten, {} unchanged, {} skipped (already exist), {} failed",
+        generation.requests.len(),
+        report.count(FileStatus::Created),
+        report.count(FileStatus::Overwritten),
+        report.count(FileStatus::Unchanged),
+        report.count(FileStatus::SkippedExisting),
+        report.count(FileStatus::Failed),
+    )
+    .map_err(Error::Output)?;
+
+    let incomplete = discovery.is_incomplete()
+        || analysis.is_incomplete()
+        || generation_failed
+        || report.has_failures();
+    Ok(if incomplete {
+        Outcome::Incomplete
+    } else {
+        Outcome::Success
+    })
 }

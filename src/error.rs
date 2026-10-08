@@ -72,6 +72,9 @@ pub enum Error {
         root: PathBuf,
     },
 
+    #[error("refusing to write {}: {reason}", path.display())]
+    UnsafeOutput { path: PathBuf, reason: String },
+
     #[error("cannot start the source analysis worker thread: {0}")]
     AnalysisThread(#[source] std::io::Error),
 
@@ -95,6 +98,7 @@ impl Error {
             Self::Io { .. }
             | Self::Output(_)
             | Self::AnalysisThread(_)
+            | Self::UnsafeOutput { .. }
             | Self::AlreadyExists { .. }
             | Self::NotImplemented { .. } => exit_code::FAILURE,
         }

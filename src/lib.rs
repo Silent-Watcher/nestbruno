@@ -3,6 +3,7 @@
 //! The binary in `main.rs` is a thin wrapper; all behavior lives in this
 //! library so it can be tested directly.
 
+pub mod bruno;
 pub mod cli;
 pub mod commands;
 pub mod config;

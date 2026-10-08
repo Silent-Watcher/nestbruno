@@ -36,6 +36,15 @@ pub enum Command {
     Discover,
     /// Print the routes extracted from the NestJS sources.
     Routes,
+    /// Generate Bruno request files from the NestJS routes.
+    ///
+    /// Existing files are never modified unless --force is given. Requests
+    /// for routes that no longer exist are not removed.
+    Generate {
+        /// Replace existing request files whose content differs.
+        #[arg(long)]
+        force: bool,
+    },
     /// Synchronize NestJS routes into the Bruno collection.
     Sync,
     /// Watch the sources and synchronize on change.
@@ -58,6 +67,15 @@ mod tests {
         assert!(cli.verbose);
         assert_eq!(cli.project, Some(PathBuf::from("some/dir")));
         assert!(matches!(cli.command, Command::Check));
+    }
+
+    #[test]
+    fn generate_accepts_force() {
+        let cli = Cli::try_parse_from(["nestbruno", "generate"]).unwrap();
+        assert!(matches!(cli.command, Command::Generate { force: false }));
+        let cli = Cli::try_parse_from(["nestbruno", "generate", "--force"]).unwrap();
+        assert!(matches!(cli.command, Command::Generate { force: true }));
+        assert!(Cli::try_parse_from(["nestbruno", "--force", "check"]).is_err());
     }
 
     #[test]

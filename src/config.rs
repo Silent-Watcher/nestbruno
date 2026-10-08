@@ -28,6 +28,10 @@ source = "src"
 # Bruno collection directory, relative to this file.
 bruno = "bruno"
 
+# Prefix of every generated request URL. The default is a Bruno variable you
+# define in a Bruno environment (e.g. baseUrl = http://localhost:3000).
+base_url = "{{baseUrl}}"
+
 # Glob patterns, matched against paths relative to `source`, selecting the
 # files that may contain controllers.
 include = ["**/*.controller.ts"]
@@ -51,6 +55,8 @@ pub struct Config {
     pub source: PathBuf,
     /// Bruno collection directory, relative to the project root.
     pub bruno: PathBuf,
+    /// Prefix of generated request URLs (may contain Bruno `{{variables}}`).
+    pub base_url: String,
     /// Glob patterns selecting controller candidate files.
     pub include: Vec<String>,
     /// Glob patterns removing files from the candidate set.
@@ -62,6 +68,7 @@ impl Default for Config {
         Self {
             source: PathBuf::from("src"),
             bruno: PathBuf::from("bruno"),
+            base_url: "{{baseUrl}}".to_owned(),
             include: vec!["**/*.controller.ts".to_owned()],
             exclude: ["dist", "build", "coverage", ".tmp", ".cache"]
                 .iter()
@@ -133,6 +140,13 @@ impl Config {
         {
             return Err(invalid(
                 "`bruno` must name a subdirectory, not the project root".to_owned(),
+            ));
+        }
+        // The URL prefix is written verbatim into a line-oriented file.
+        if self.base_url.chars().any(char::is_control) || self.base_url.starts_with("'''") {
+            return Err(invalid(
+                "`base_url` must be a single line without control characters and must not start with '''"
+                    .to_owned(),
             ));
         }
         if self.include.is_empty() {
@@ -248,6 +262,21 @@ mod tests {
     #[test]
     fn source_may_be_the_project_root() {
         assert_eq!(parse("source = \".\"").unwrap().source, PathBuf::from("."));
+    }
+
+    #[test]
+    fn base_url_defaults_to_a_bruno_variable_and_can_be_overridden() {
+        assert_eq!(Config::default().base_url, "{{baseUrl}}");
+        let config = parse("base_url = \"http://localhost:3000\"").unwrap();
+        assert_eq!(config.base_url, "http://localhost:3000");
+    }
+
+    #[test]
+    fn base_url_must_be_a_single_safe_line() {
+        for value in ["a\\nb", "a\\rb", "'''x", "a\\u0000b"] {
+            let err = parse(&format!("base_url = \"{value}\"")).unwrap_err();
+            assert!(matches!(err, Error::ConfigInvalid { .. }), "{value}");
+        }
     }
 
     #[test]

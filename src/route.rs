@@ -88,7 +88,7 @@ impl fmt::Display for HttpMethod {
 
 /// A path that is either known statically or could not be determined without
 /// evaluating code. Unknown values are never guessed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RoutePath {
     /// A normalized path such as `/users/:id`.
     Static(String),
