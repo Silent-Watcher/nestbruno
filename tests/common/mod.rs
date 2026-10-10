@@ -114,3 +114,8 @@ pub fn fixture(rel: &str) -> PathBuf {
         .join("tests/fixtures")
         .join(rel)
 }
+
+/// Read a UTF-8 file, panicking with its path on failure.
+pub fn read_text(path: &Path) -> String {
+    fs::read_to_string(path).unwrap_or_else(|err| panic!("cannot read {}: {err}", path.display()))
+}

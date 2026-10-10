@@ -26,6 +26,7 @@ pub mod identity;
 pub mod model;
 pub mod naming;
 pub mod serialize;
+pub mod stamp;
 pub mod writer;
 
 use crate::config::Config;
@@ -54,6 +55,10 @@ pub struct Generation {
     pub requests: Vec<GeneratedRequest>,
     /// Routes or parameters that were left out, each with the reason.
     pub diagnostics: Vec<Diagnostic>,
+    /// Routes that exist in the source but produced no request (unsupported
+    /// or unsafe). Synchronization must not treat their existing requests as
+    /// stale.
+    pub skipped: Vec<RouteIdentity>,
 }
 
 /// Compute the desired Bruno files for `controllers`.
@@ -115,6 +120,9 @@ fn generate_controller(
         let built = match build_request(&config.base_url, controller, route, seq) {
             Ok(built) => built,
             Err(reason) => {
+                generation
+                    .skipped
+                    .push(RouteIdentity::of(controller, route));
                 skip(
                     generation,
                     Severity::Warning,
@@ -126,16 +134,20 @@ fn generate_controller(
         for warning in &built.warnings {
             skip(generation, Severity::Warning, warning.clone());
         }
-        match serialize(&built.request) {
-            Ok(content) => pending.push(Pending {
-                identity: RouteIdentity::of(controller, route),
-                content,
-            }),
-            Err(err) => skip(
-                generation,
-                Severity::Error,
-                format!("no Bruno request generated: {err}"),
-            ),
+        let identity = RouteIdentity::of(controller, route);
+        let content = serialize(&built.request)
+            .map_err(|err| err.to_string())
+            .and_then(|text| stamp::stamp(&text, &identity).map_err(str::to_owned));
+        match content {
+            Ok(content) => pending.push(Pending { identity, content }),
+            Err(err) => {
+                generation.skipped.push(identity);
+                skip(
+                    generation,
+                    Severity::Error,
+                    format!("no Bruno request generated: {err}"),
+                );
+            }
         }
     }
 
@@ -351,6 +363,28 @@ mod tests {
             g.requests[0].content.contains("seq: 1"),
             "skipped routes do not consume a seq"
         );
+    }
+
+    #[test]
+    fn every_route_that_produces_no_request_is_recorded_as_skipped() {
+        // Regression: skipped routes must be reported so that synchronization
+        // never mistakes "could not generate" for "route removed".
+        let mut unresolved = route(HttpMethod::Get, "u", "/x");
+        unresolved.path = RoutePath::Unresolved;
+        let c = controller(
+            "C",
+            "src/c.ts",
+            vec![
+                route(HttpMethod::All, "any", "/a"),
+                unresolved,
+                route(HttpMethod::Get, "hostile", "/a\nb"),
+                route(HttpMethod::Get, "ok", "/ok"),
+            ],
+        );
+        let g = generate(&Config::default(), &[c]);
+        assert_eq!(g.requests.len(), 1);
+        let handlers: Vec<_> = g.skipped.iter().map(|i| i.handler.as_str()).collect();
+        assert_eq!(handlers, ["any", "u", "hostile"]);
     }
 
     #[test]

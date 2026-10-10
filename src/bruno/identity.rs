@@ -86,6 +86,46 @@ impl RouteIdentity {
         hash.field(self.handler.as_bytes());
         hash.finish()
     }
+
+    /// Fingerprint of the *handler*: controller class name + handler name,
+    /// without method, path or file. It lets synchronization follow a route
+    /// whose path or HTTP method was edited, and protects the existing request
+    /// of a route that currently cannot be generated. Only trusted when unique
+    /// on both sides.
+    pub fn anchor(&self) -> u64 {
+        let mut hash = Fnv::new();
+        hash.field(self.controller.name.as_bytes());
+        hash.field(self.handler.as_bytes());
+        hash.finish()
+    }
+
+    /// Fingerprint of the route *without* its handler name and source file:
+    /// controller class name + HTTP method + normalized path. It lets
+    /// synchronization recognize the same route after a handler rename or a
+    /// controller file move. It is only trusted when unique on both sides.
+    pub fn key(&self) -> u64 {
+        let mut hash = Fnv::new();
+        hash.field(self.controller.name.as_bytes());
+        hash.field(self.method.as_str().as_bytes());
+        match &self.path {
+            RoutePath::Static(path) => {
+                hash.field(b"s");
+                hash.field(path.as_bytes());
+            }
+            RoutePath::Unresolved => hash.field(b"u"),
+        }
+        hash.finish()
+    }
+}
+
+/// Stable 64-bit hash of text (FNV-1a over the bytes). Used to detect whether
+/// a generated file still has the content it was generated with. Not a
+/// security boundary: forging a collision only lets someone who can already
+/// edit the collection files influence files inside that collection.
+pub fn content_hash(text: &str) -> u64 {
+    let mut hash = Fnv::new();
+    hash.bytes(text.as_bytes());
+    hash.finish()
 }
 
 /// Path with `/` separators on every platform, so the fingerprint does not

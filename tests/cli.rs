@@ -21,7 +21,7 @@ fn help_lists_all_commands() {
     let output = bin().arg("--help").output().unwrap();
     assert!(output.status.success());
     let help = stdout(&output);
-    for command in ["init", "check", "sync", "watch"] {
+    for command in ["init", "check", "sync", "generate", "watch"] {
         assert!(help.contains(command), "help should mention {command}");
     }
 }
@@ -122,13 +122,11 @@ fn check_with_missing_project_directory_fails() {
 }
 
 #[test]
-fn sync_and_watch_are_reported_as_not_implemented() {
+fn watch_is_reported_as_not_implemented() {
     let project = TestProject::new();
-    for command in ["sync", "watch"] {
-        let output = project.run(&[command]);
-        assert_eq!(output.status.code(), Some(1), "{command}");
-        assert!(stderr(&output).contains("not implemented"), "{command}");
-    }
+    let output = project.run(&["watch"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("not implemented"));
 }
 
 #[test]

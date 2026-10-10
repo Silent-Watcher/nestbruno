@@ -15,6 +15,7 @@ use crate::error::Error;
 use crate::nest::analyze_files;
 use crate::project::Project;
 use crate::route::{Controller, ParameterName};
+use crate::sync::{Desired, SyncResult, synchronize};
 
 /// How a command that did not fail fatally ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,13 +34,7 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
         Command::Discover => discover(cli, out, reporter),
         Command::Routes => routes(cli, out, reporter),
         Command::Generate { force } => generate_command(cli, *force, out, reporter),
-        Command::Sync => {
-            open_project(cli, reporter)?;
-            Err(Error::NotImplemented {
-                command: "sync",
-                phase: 5,
-            })
-        }
+        Command::Sync { dry_run } => sync_command(cli, *dry_run, out, reporter),
         Command::Watch => {
             open_project(cli, reporter)?;
             Err(Error::NotImplemented {
@@ -275,4 +270,107 @@ fn generate_command(
     } else {
         Outcome::Success
     })
+}
+
+/// discover ─▶ analyze ─▶ generate (pure) ─▶ reconcile ─▶ apply (unless dry run).
+fn sync_command(
+    cli: &Cli,
+    dry_run: bool,
+    out: &mut dyn Write,
+    reporter: &Reporter,
+) -> Result<Outcome, Error> {
+    let project = open_project(cli, reporter)?;
+    let discovery = discover_controllers(&project)?;
+    let analysis = analyze_files(&project, &discovery.files)?;
+    let generation = generate(project.config(), &analysis.controllers);
+
+    let source_complete = !discovery.is_incomplete() && !analysis.is_incomplete();
+    let desired = Desired {
+        requests: &generation.requests,
+        skipped: &generation.skipped,
+        complete: source_complete,
+    };
+    let result = synchronize(project.root(), &project.config().bruno, &desired, dry_run)?;
+
+    let diagnostics = discovery
+        .diagnostics
+        .iter()
+        .chain(&analysis.diagnostics)
+        .chain(&generation.diagnostics)
+        .chain(&result.diagnostics);
+    for diagnostic in diagnostics {
+        reporter.report(diagnostic);
+    }
+
+    write_sync_report(out, &project.config().bruno, &result, reporter.is_verbose())
+        .map_err(Error::Output)?;
+
+    let generation_failed = generation
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == crate::diag::Severity::Error);
+    let incomplete = !source_complete || generation_failed || !result.is_complete();
+    Ok(if incomplete {
+        Outcome::Incomplete
+    } else {
+        Outcome::Success
+    })
+}
+
+/// Deterministic, terminal-independent-enough report of a [`SyncResult`]: one
+/// line per change or problem, then a summary.
+fn write_sync_report(
+    out: &mut dyn Write,
+    bruno_dir: &std::path::Path,
+    result: &SyncResult,
+    verbose: bool,
+) -> std::io::Result<()> {
+    let show = |path: &std::path::Path| bruno_dir.join(path).display().to_string();
+    for path in &result.created {
+        writeln!(out, "CREATE    {}", show(path))?;
+    }
+    for path in &result.updated {
+        writeln!(out, "UPDATE    {}", show(path))?;
+    }
+    for path in &result.deleted {
+        writeln!(out, "DELETE    {}", show(path))?;
+    }
+    for conflict in &result.conflicts {
+        writeln!(
+            out,
+            "CONFLICT  {}: {}",
+            show(&conflict.path),
+            conflict.reason.description()
+        )?;
+        writeln!(
+            out,
+            "          what to do: {}",
+            conflict.reason.suggestion()
+        )?;
+    }
+    for (path, reason) in &result.failed {
+        writeln!(out, "FAILED    {}: {reason}", show(path))?;
+    }
+    if verbose {
+        for path in &result.preserved {
+            writeln!(out, "PRESERVE  {}", show(path))?;
+        }
+        for path in &result.unchanged {
+            writeln!(out, "UNCHANGED {}", show(path))?;
+        }
+    }
+
+    writeln!(out, "Created:     {}", result.created.len())?;
+    writeln!(out, "Updated:     {}", result.updated.len())?;
+    writeln!(out, "Unchanged:   {}", result.unchanged.len())?;
+    writeln!(out, "Deleted:     {}", result.deleted.len())?;
+    writeln!(out, "Preserved:   {}", result.preserved.len())?;
+    writeln!(out, "Conflicts:   {}", result.conflicts.len())?;
+    if !result.failed.is_empty() {
+        writeln!(out, "Failed:      {}", result.failed.len())?;
+    }
+    if !result.applied {
+        writeln!(out, "No files were written.")?;
+    }
+    Ok(())
 }

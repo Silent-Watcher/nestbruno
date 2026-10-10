@@ -35,12 +35,13 @@ use std::path::{Component, Path, PathBuf};
 use tempfile::{Builder, NamedTempFile};
 
 use super::GeneratedRequest;
+use super::identity::content_hash;
 use crate::diag::{Diagnostic, Severity};
 use crate::error::Error;
 
 /// Content of a newly created `bruno.json`.
 pub const COLLECTION_FILE: &str = "bruno.json";
-const COLLECTION_JSON: &str =
+pub(crate) const COLLECTION_JSON: &str =
     "{\n  \"version\": \"1\",\n  \"name\": \"API\",\n  \"type\": \"collection\"\n}\n";
 
 /// What happened to one file.
@@ -183,7 +184,7 @@ fn fail(report: &mut WriteReport, rel: PathBuf, reason: String) {
 
 /// The normal components of a relative path; `None` for anything else.
 /// `.` components are dropped.
-fn relative_components(path: &Path) -> Option<Vec<String>> {
+pub(crate) fn relative_components(path: &Path) -> Option<Vec<String>> {
     let mut out = Vec::new();
     for component in path.components() {
         match component {
@@ -200,7 +201,7 @@ fn relative_components(path: &Path) -> Option<Vec<String>> {
 }
 
 /// A single path component must be a plain, portable file name.
-fn check_component(name: &str) -> Result<(), String> {
+pub(crate) fn check_component(name: &str) -> Result<(), String> {
     let bad = name.is_empty()
         || name == "."
         || name == ".."
@@ -219,7 +220,7 @@ fn check_component(name: &str) -> Result<(), String> {
 
 /// Create (if needed) and verify the directory `base/components...`, refusing
 /// symlinks and non-directories at every level. Returns the directory path.
-fn ensure_dir(base: &Path, components: &[String]) -> Result<PathBuf, String> {
+pub(crate) fn ensure_dir(base: &Path, components: &[String]) -> Result<PathBuf, String> {
     let mut path = base.to_owned();
     for component in components {
         check_component(component)?;
@@ -257,7 +258,7 @@ fn ensure_dir(base: &Path, components: &[String]) -> Result<PathBuf, String> {
 ///
 /// `never_replace` is for files that are user-owned once they exist
 /// (`bruno.json`): a differing existing file is left alone even with `force`.
-fn write_file(
+pub(crate) fn write_file(
     dir: &Path,
     name: &str,
     content: &str,
@@ -298,6 +299,87 @@ fn write_file(
             }
         }
         Err(err) => Err(format!("cannot inspect {}: {err}", target.display())),
+    }
+}
+
+/// The existing directory `base/components...`, refusing symlinks and
+/// non-directories at every level and never creating anything.
+pub(crate) fn existing_dir(base: &Path, components: &[String]) -> Result<PathBuf, String> {
+    let mut path = base.to_owned();
+    for component in components {
+        check_component(component)?;
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(format!(
+                    "{} is a symlink; refusing to use it",
+                    path.display()
+                ));
+            }
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => return Err(format!("{} is not a directory", path.display())),
+            Err(err) => return Err(format!("cannot inspect {}: {err}", path.display())),
+        }
+    }
+    Ok(path)
+}
+
+/// Read a regular file that must still hold the content whose hash is
+/// `expected`; anything else means it changed since it was planned.
+fn read_verified(target: &Path, expected: u64) -> Result<fs::Metadata, String> {
+    let meta = fs::symlink_metadata(target)
+        .map_err(|err| format!("cannot inspect {}: {err}", target.display()))?;
+    if !meta.file_type().is_file() {
+        return Err(format!("{} is no longer a regular file", target.display()));
+    }
+    let mut bytes = Vec::new();
+    File::open(target)
+        .and_then(|file| file.take(meta.len() + 1).read_to_end(&mut bytes))
+        .map_err(|err| format!("cannot read {}: {err}", target.display()))?;
+    let unchanged = std::str::from_utf8(&bytes).is_ok_and(|text| content_hash(text) == expected);
+    if unchanged {
+        Ok(meta)
+    } else {
+        Err(format!(
+            "{} changed since synchronization was planned; left untouched",
+            target.display()
+        ))
+    }
+}
+
+/// Atomically replace `dir/name` with `content`, but only if it still has the
+/// content whose hash is `expected`. Permissions are preserved.
+pub(crate) fn replace_if_unchanged(
+    dir: &Path,
+    name: &str,
+    content: &str,
+    expected: u64,
+) -> Result<(), String> {
+    check_component(name)?;
+    let target = dir.join(name);
+    let meta = read_verified(&target, expected)?;
+    let temp = write_temp(dir, content, Some(&meta.permissions()))?;
+    temp.persist(&target)
+        .map_err(|err| format!("cannot replace {}: {}", target.display(), err.error))?;
+    Ok(())
+}
+
+/// Delete `dir/name`, but only if it still has the content whose hash is
+/// `expected`.
+pub(crate) fn remove_if_unchanged(dir: &Path, name: &str, expected: u64) -> Result<(), String> {
+    check_component(name)?;
+    let target = dir.join(name);
+    read_verified(&target, expected)?;
+    fs::remove_file(&target).map_err(|err| format!("cannot delete {}: {err}", target.display()))
+}
+
+/// Remove `dir` and its parents up to (excluding) `stop` while they are empty.
+/// `remove_dir` refuses non-empty directories, which ends the walk.
+pub(crate) fn remove_empty_dirs(mut dir: PathBuf, stop: &Path) {
+    while dir != stop && dir.starts_with(stop) && fs::remove_dir(&dir).is_ok() {
+        if !dir.pop() {
+            break;
+        }
     }
 }
 

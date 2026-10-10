@@ -45,8 +45,16 @@ pub enum Command {
         #[arg(long)]
         force: bool,
     },
-    /// Synchronize NestJS routes into the Bruno collection.
-    Sync,
+    /// Synchronize the NestJS routes with the Bruno collection.
+    ///
+    /// Creates requests for new routes, updates unmodified generated requests,
+    /// deletes unmodified generated requests of removed routes, and never
+    /// touches requests you wrote or modified (those are reported as conflicts).
+    Sync {
+        /// Show what would change without writing anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Watch the sources and synchronize on change.
     Watch,
 }
@@ -76,6 +84,14 @@ mod tests {
         let cli = Cli::try_parse_from(["nestbruno", "generate", "--force"]).unwrap();
         assert!(matches!(cli.command, Command::Generate { force: true }));
         assert!(Cli::try_parse_from(["nestbruno", "--force", "check"]).is_err());
+    }
+
+    #[test]
+    fn sync_accepts_dry_run() {
+        let cli = Cli::try_parse_from(["nestbruno", "sync", "--dry-run"]).unwrap();
+        assert!(matches!(cli.command, Command::Sync { dry_run: true }));
+        let cli = Cli::try_parse_from(["nestbruno", "sync"]).unwrap();
+        assert!(matches!(cli.command, Command::Sync { dry_run: false }));
     }
 
     #[test]
