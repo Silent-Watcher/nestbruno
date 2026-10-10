@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2eea60e74d6dc1fdb2854694232ce4bc9618096a787df5c625ca7fa92c6554d9 # shrinks to before = [Spec { handler: 0, method: 0, path: 0, query: None }], after = [Spec { handler: 1, method: 0, path: 1, query: None }]
+cc a013a6a9027d597231401db1d4358b7b7ebbf5375fe48577075583c4b97b00fc # shrinks to history = [[]], victim = 0
+cc b19a8da6e3890cfc442d3b88c64a6b79c80a983796f635afe2accb96d4c588dc # shrinks to history = [[Spec { handler: 1, method: 1, path: 1, query: None }], [Spec { handler: 3, method: 1, path: 1, query: None }], [Spec { handler: 1, method: 0, path: 0, query: None }, Spec { handler: 3, method: 0, path: 0, query: None }]]
