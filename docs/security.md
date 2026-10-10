@@ -27,6 +27,11 @@ not claim protections that are not implemented and tested.
 | Writing through symlinks / outside the collection | Collection path walked from the project root, symlinks refused at every level; existing symlink/dir targets never replaced. | unit + integration tests (unix) |
 | Unsafe overwrite of user work | Existing differing files untouched unless `--force`; `bruno.json` never overwritten; non-generated files never touched. | unit + integration tests |
 | Corrupt files after a crash | Temp file + `fsync` + no-clobber link / rename; no text on serialization failure. | unit tests |
+| Destroying user edits during sync | A file is replaced or deleted only if positively generated **and unmodified** (content hash vs stamp); modified files are never touched; no field-level merge. | unit + integration + property tests; 6 mutation checks |
+| Deleting on a partial view | No deletion when discovery, analysis or the collection read was incomplete; ungeneratable routes keep their requests. | unit + integration tests; mutation-checked |
+| Acting on a file that changed after planning | Content hash re-verified immediately before replace/delete. | unit tests; mutation-checked |
+| Ambiguous ownership (cloned requests, duplicate routes) | Critical conflict: nothing is written. | unit + integration tests |
+| Forged or malformed stamps | A stamp is only a claim: modification is judged by the hash; malformed or duplicated stamps are conflicts; foreign files are never matched. | unit + property + integration tests |
 | Discovery writes or executes anything | It only lists directories and inspects file types; it never reads file contents. | by construction |
 | Shell injection | No command is ever built from project data. No subprocesses exist yet. | by construction |
 
@@ -34,12 +39,12 @@ not claim protections that are not implemented and tested.
 
 Documented here so they are designed in, not forgotten:
 
-- Merge-aware overwrite protection and ownership of user fields (Phase 5).
 - Safe Git invocation without shell interpolation (Phase 8).
 - Bounded watcher event queues (Phase 7).
 
 ## Known gaps
 
+- The pre-write hash re-check narrows but does not close the window between check and write. The stamp hash is FNV-1a 64: not collision resistant against deliberate forgery by someone who can already edit the collection.
 - Check-then-write races on the collection directory: another process could
   swap a directory for a symlink between the check and the write. The parent
   directory is not `fsync`ed.

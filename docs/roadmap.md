@@ -5,7 +5,6 @@ Future work only. Nothing here is implemented; see
 
 | Phase | Title |
 | --- | --- |
-| 5 | Safe synchronization / reconciliation |
 | 6 | Incremental synchronization |
 | 7 | Watch mode |
 | 8 | Git staged synchronization (`sync --staged`) |

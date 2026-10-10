@@ -24,6 +24,8 @@ nestbruno check    # validate the configuration and project layout
 nestbruno discover # list the files that may contain controllers
 nestbruno routes   # print the HTTP routes found in them
 nestbruno generate # write a Bruno request per route (never overwrites without --force)
+nestbruno sync     # update the collection safely; your edits are never overwritten
+nestbruno sync --dry-run   # show what sync would do
 ```
 
 ## Supported capabilities

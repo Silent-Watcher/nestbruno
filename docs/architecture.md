@@ -20,6 +20,10 @@ components are marked *planned* and are not implemented.
 | `bruno/model.rs` | Bruno request model and IR-to-model mapping; validates all untrusted text. |
 | `bruno/serialize.rs` | Model to `.bru` text; refuses anything Bruno could misread. |
 | `bruno/naming.rs`, `bruno/identity.rs` | Deterministic safe names with collision handling; route identity and fingerprint. |
+| `bruno/stamp.rs` | The ownership stamp (one `docs` line: id, key, anchor, content hash) and normalized hashing. |
+| `sync/existing.rs` | Discovers and classifies existing `.bru` files (generated / modified / unknown / invalid). |
+| `sync/reconcile.rs` | Pure `plan(desired, existing)`: matching, conflicts, deletions. No filesystem. |
+| `sync/apply.rs`, `sync/mod.rs` | Execute a plan through verified writes; `SyncResult` (terminal independent); `synchronize()`. |
 | `bruno/writer.rs` | The only code that writes: containment, symlink refusal, overwrite policy, atomic files. |
 | `diag.rs` | `Diagnostic`, `Severity`, and the stderr `Reporter`. |
 | `error.rs` | The fatal `Error` enum and exit-code mapping. |
@@ -104,8 +108,20 @@ state is separate from writing it, which is what reconciliation (Phase 5) and
 dry-run (Phase 9) need. Details, format verification and policies:
 [phases/phase-04.md](phases/phase-04.md).
 
+## Synchronization
+
+```text
+generate() ─▶ desired requests ─┐
+                                ├─▶ reconcile::plan (pure) ─▶ Plan ─▶ apply ─▶ SyncResult
+existing::load ─▶ classified ───┘                              (skipped on dry run / critical conflict)
+```
+
+Ownership comes from a stamp in each generated request; a file counts as
+modified when its content no longer hashes to the stamp. Rules, conflicts and
+safety guarantees: [phases/phase-05.md](phases/phase-05.md).
+
 ## Planned components (not implemented)
 
-Reconciliation,
+
 incremental synchronization, watch mode, Git integration. See
 [roadmap.md](roadmap.md).

@@ -20,6 +20,11 @@
   safe atomic writer with an explicit existing-file policy. Output verified
   against Bruno's own parser/serializer.
 
+- **Phase 5 (synchronization):** ownership stamp, classification, pure
+  reconciler, conflicts, verified atomic apply, `sync` and `sync --dry-run`.
+  Property-tested: syncing a history of changes equals syncing the final state
+  once.
+
 ## Commands
 
 | Command | State |
@@ -29,7 +34,8 @@
 | `discover` | Works: lists candidate controller files, one per line. Diagnostic/inspection command. |
 | `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format, not a stable machine interface). |
 | `generate [--force]` | Works: writes request files; existing differing files are left alone unless `--force`; nothing is ever deleted. |
-| `sync`, `watch` | Load the project, then fail with "not implemented". |
+| `sync [--dry-run]` | Works: creates, updates in place, deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
+| `watch` | Loads the project, then fails with "not implemented". |
 
 ## Current limitations
 
@@ -40,14 +46,16 @@
   prefixes (`app.setGlobalPrefix`), versioning and `RouterModule` paths are
   not modelled, so extracted paths can differ from the running application's.
 - Sources over 256 KiB are skipped (reported as errors).
-- No synchronization: `generate` creates and (with `--force`) replaces files
-  but never merges, updates selectively or removes requests of deleted routes.
+- No field-level merge: any user edit locks the whole request (conflict if its
+  route changes). `seq` is user-owned after creation.
+- Nothing is deleted while source discovery/analysis is incomplete.
+- Sync reads every existing `.bru` file each run (no incremental mode yet).
 - `@All`, unresolved/array paths and paths with `?`, `#`, whitespace or `{{`
   are not generated; bodies are skeletons; no environment or `folder.bru` is
   created (`baseUrl` must be defined in a Bruno environment).
 - Output verified with Bruno's parser library, not by opening the desktop app.
 - Discovery measurement so far: ad-hoc runs on synthetic trees (100,000-file
-  discovery; 5,000-controller extraction, 5,000-file generation; see the phase documents). No benchmark suite exists yet (Phase 10).
+  discovery; 5,000-controller extraction, 5,000-file generation; 5,000-request sync; see the phase documents). No benchmark suite exists yet (Phase 10).
 - CI is configured for Linux, macOS and Windows but has only been exercised
   locally on Linux.
 - No `LICENSE` file has been chosen yet (owner decision).

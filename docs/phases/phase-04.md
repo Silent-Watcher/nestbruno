@@ -113,12 +113,14 @@ Implemented in `bruno/naming.rs` (rules also in its module docs).
 `RouteIdentity` = controller (class name + project-relative file) + HTTP method
 + normalized path + handler name, with a stable 64-bit FNV-1a fingerprint
 (pinned by test and cross-checked against an independent implementation).
-Nothing machine specific. Not stored in the `.bru` file (Bruno would drop it
-from `meta`); recomputed from source. Documented limits: renaming a handler or a
+Nothing machine specific. Phase 4 did not store it in the file; **Phase 5 adds
+a stamp line to the `docs` block** (`NestBruno: v1 id=... key=... anchor=...
+hash=...`, see [phase-05.md](phase-05.md)) because Bruno drops unknown `meta`
+keys but keeps `docs`. Documented limits: renaming a handler or a
 path parameter, or moving a controller file, changes the fingerprint. Phase 5
 must match on the identity *fields* (method + path is the strongest signal),
-not on the fingerprint alone. The `docs` lines are a user-editable hint, not
-authority.
+not on the fingerprint alone. The `docs` lines other than the Phase 5 stamp are
+a user-editable hint, not authority.
 
 ## Existing files
 
