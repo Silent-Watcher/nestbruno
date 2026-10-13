@@ -122,14 +122,40 @@ pub fn discover_controllers(project: &Project) -> Result<Discovery, Error> {
         source_prefix: &source_prefix,
         discovery: Discovery::default(),
     }
-    .walk(&source_root)?;
+    .walk(&source_root, Path::new(""))?;
 
     discovery.files.sort_unstable();
     Ok(discovery)
 }
 
+/// Discover the candidate files below one directory of the source tree
+/// (`relative_dir` is relative to the *source* directory), using the same
+/// rules as [`discover_controllers`]. Used by watch mode when a whole directory
+/// appears at once (a move, a checkout).
+pub fn discover_in(
+    project: &Project,
+    matcher: &Matcher,
+    relative_dir: &Path,
+) -> Result<Discovery, Error> {
+    let source_root = contained_source_root(project)?;
+    let source_prefix: PathBuf = project
+        .config()
+        .source
+        .components()
+        .filter(|c| !matches!(c, Component::CurDir))
+        .collect();
+    let mut discovery = Walker {
+        matcher,
+        source_prefix: &source_prefix,
+        discovery: Discovery::default(),
+    }
+    .walk(&source_root, relative_dir)?;
+    discovery.files.sort_unstable();
+    Ok(discovery)
+}
+
 /// Resolve the source directory and verify it lies inside the project root.
-fn contained_source_root(project: &Project) -> Result<PathBuf, Error> {
+pub(crate) fn contained_source_root(project: &Project) -> Result<PathBuf, Error> {
     let configured = project.source_root();
     let resolved = configured.canonicalize().map_err(|source| Error::Io {
         path: configured.clone(),
@@ -146,18 +172,57 @@ fn contained_source_root(project: &Project) -> Result<PathBuf, Error> {
     }
 }
 
-/// Compiled include/exclude patterns. Built once per discovery run.
-struct Matcher {
+/// Compiled include/exclude patterns. Built once per discovery run (or once per
+/// watch session).
+pub struct Matcher {
     include: GlobSet,
     exclude: GlobSet,
 }
 
 impl Matcher {
-    fn new(config: &Config) -> Result<Self, Error> {
+    pub fn new(config: &Config) -> Result<Self, Error> {
         Ok(Self {
             include: compile("include", &config.include)?,
             exclude: compile("exclude", &config.exclude)?,
         })
+    }
+
+    /// The single definition of "can this path be a controller source?".
+    ///
+    /// `relative` is relative to the source directory. True exactly for the
+    /// files that [`discover_controllers`] would return: a `.ts` file (not
+    /// `.d.ts`) matching `include` and no `exclude` pattern, none of whose
+    /// ancestor directories is pruned (`.git`, `node_modules`, excluded, or
+    /// nested too deeply). Watch mode uses it to decide which filesystem events
+    /// matter; a test keeps it consistent with the walker.
+    pub fn is_relevant(&self, relative: &Path) -> bool {
+        let Some(name) = relative.file_name() else {
+            return false;
+        };
+        if !is_typescript_source(name) {
+            return false;
+        }
+        let parent = relative.parent().unwrap_or(Path::new(""));
+        !self.is_pruned_dir(parent) && self.is_candidate(relative)
+    }
+
+    /// Whether the directory `relative` (relative to the source directory) or
+    /// one of its ancestors is never entered by discovery.
+    pub fn is_pruned_dir(&self, relative: &Path) -> bool {
+        let mut dir = PathBuf::new();
+        for (index, component) in relative.components().enumerate() {
+            let Component::Normal(part) = component else {
+                return true;
+            };
+            if ALWAYS_SKIPPED_DIRS.iter().any(|skipped| part == *skipped) {
+                return true;
+            }
+            dir.push(part);
+            if index + 1 > MAX_DEPTH || self.is_excluded_dir(&dir) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Whether `relative` (relative to the source root) is a candidate file.
@@ -218,9 +283,13 @@ struct Walker<'a> {
 impl Walker<'_> {
     /// Iterative depth-first traversal (no recursion, so depth cannot overflow
     /// the stack).
-    fn walk(mut self, source_root: &Path) -> Result<Discovery, Error> {
+    fn walk(mut self, source_root: &Path, start: &Path) -> Result<Discovery, Error> {
         // (absolute directory, directory relative to the source root, depth)
-        let mut pending = vec![(source_root.to_owned(), PathBuf::new(), 0_usize)];
+        let mut pending = vec![(
+            source_root.join(start),
+            start.to_owned(),
+            start.components().count(),
+        )];
 
         while let Some((dir, relative_dir, depth)) = pending.pop() {
             let entries = match fs::read_dir(&dir) {
@@ -426,6 +495,74 @@ mod tests {
             let err = Matcher::new(&config(&include, &exclude)).err().unwrap();
             assert!(matches!(&err, Error::InvalidPattern { kind: k, .. } if *k == kind));
             assert!(err.to_string().contains(kind));
+        }
+    }
+
+    mod consistency {
+        use proptest::prelude::*;
+
+        use super::*;
+        use crate::project::Project;
+
+        const DIRS: [&str; 7] = ["a", "b", "node_modules", "dist", ".git", "build", "deep"];
+        const FILES: [&str; 8] = [
+            "x.controller.ts",
+            "y.service.ts",
+            "z.d.ts",
+            "w.controller.d.ts",
+            "u.controller.js",
+            "v.controller.tsx",
+            "t.controller.ts.bak",
+            "controller.ts",
+        ];
+
+        fn entry() -> impl Strategy<Value = Vec<usize>> {
+            // up to three directories followed by a file index
+            (
+                proptest::collection::vec(0..DIRS.len(), 0..4),
+                0..FILES.len(),
+            )
+                .prop_map(|(mut dirs, file)| {
+                    dirs.push(DIRS.len() + file);
+                    dirs
+                })
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(60))]
+
+            /// `Matcher::is_relevant` (used by watch mode) must agree exactly
+            /// with what the directory walk returns.
+            #[test]
+            fn is_relevant_agrees_with_the_directory_walk(entries in proptest::collection::vec(entry(), 1..14)) {
+                let dir = tempfile::tempdir().unwrap();
+                let mut all_files: Vec<PathBuf> = Vec::new();
+                for parts in &entries {
+                    let mut path = PathBuf::from("src");
+                    for part in &parts[..parts.len() - 1] {
+                        path.push(DIRS[*part]);
+                    }
+                    path.push(FILES[parts[parts.len() - 1] - DIRS.len()]);
+                    let full = dir.path().join(&path);
+                    fs::create_dir_all(full.parent().unwrap()).unwrap();
+                    fs::write(&full, "").unwrap();
+                    all_files.push(path);
+                }
+                let project = Project::open(dir.path()).unwrap();
+                let matcher = Matcher::new(project.config()).unwrap();
+                let discovered: std::collections::BTreeSet<PathBuf> = discover_controllers(&project)
+                    .unwrap()
+                    .files
+                    .into_iter()
+                    .map(|f| f.path)
+                    .collect();
+                let relevant: std::collections::BTreeSet<PathBuf> = all_files
+                    .iter()
+                    .filter(|p| matcher.is_relevant(p.strip_prefix("src").unwrap()))
+                    .cloned()
+                    .collect();
+                prop_assert_eq!(discovered, relevant);
+            }
         }
     }
 }

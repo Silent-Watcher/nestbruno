@@ -209,7 +209,7 @@ pub fn synchronize(
     desired: &Desired<'_>,
     dry_run: bool,
 ) -> Result<SyncResult, Error> {
-    let existing = existing::load(root, bruno_dir, &desired.requests_paths())?;
+    let existing = existing::load(root, bruno_dir)?;
     let plan = reconcile::plan(desired, &existing);
 
     let mut result = SyncResult::from_plan(&plan);
@@ -227,16 +227,6 @@ pub fn synchronize(
         apply::apply(root, bruno_dir, &plan, &mut result)?;
     }
     Ok(result)
-}
-
-impl Desired<'_> {
-    /// Lower-cased target paths (relative to the collection) of all requests.
-    fn requests_paths(&self) -> std::collections::HashSet<String> {
-        self.requests
-            .iter()
-            .map(|r| format!("{}/{}", r.folder, r.file_name).to_lowercase())
-            .collect()
-    }
 }
 
 impl SyncResult {

@@ -41,7 +41,7 @@ const PREFIX: &str = "NestBruno:";
 const VERSION: &str = "v1";
 
 /// The parsed stamp.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Stamp {
     pub id: u64,
     pub key: u64,
@@ -65,6 +65,15 @@ pub enum Parsed {
 ///
 /// `unstamped` must contain a `docs` block, which generated requests always do.
 pub fn stamp(unstamped: &str, identity: &RouteIdentity) -> Result<String, &'static str> {
+    stamp_with(unstamped, identity).map(|(text, _)| text)
+}
+
+/// Like [`stamp`], also returning the stamp that was written, so callers need
+/// not parse it back out of the text.
+pub fn stamp_with(
+    unstamped: &str,
+    identity: &RouteIdentity,
+) -> Result<(String, Stamp), &'static str> {
     let hash = content_hash(&normalized(unstamped));
     let line = format!(
         "  {PREFIX} {VERSION} id={:016x} key={:016x} anchor={:016x} hash={hash:016x}\n",
@@ -83,7 +92,13 @@ pub fn stamp(unstamped: &str, identity: &RouteIdentity) -> Result<String, &'stat
     out.push_str(&unstamped[..at]);
     out.push_str(&line);
     out.push_str(&unstamped[at..]);
-    Ok(out)
+    let stamp = Stamp {
+        id: identity.fingerprint(),
+        key: identity.key(),
+        anchor: identity.anchor(),
+        hash,
+    };
+    Ok((out, stamp))
 }
 
 /// Read the stamp of `text`, if any.

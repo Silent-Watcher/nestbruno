@@ -16,6 +16,8 @@ use crate::nest::analyze_files;
 use crate::project::Project;
 use crate::route::{Controller, ParameterName};
 use crate::sync::{Desired, SyncResult, synchronize};
+use crate::watch::{Notice, Watch, WatchOptions};
+use crate::workspace::Delta;
 
 /// How a command that did not fail fatally ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,13 +37,7 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
         Command::Routes => routes(cli, out, reporter),
         Command::Generate { force } => generate_command(cli, *force, out, reporter),
         Command::Sync { dry_run } => sync_command(cli, *dry_run, out, reporter),
-        Command::Watch => {
-            open_project(cli, reporter)?;
-            Err(Error::NotImplemented {
-                command: "watch",
-                phase: 7,
-            })
-        }
+        Command::Watch { debounce } => watch_command(cli, *debounce, out, reporter),
     }
 }
 
@@ -371,6 +367,122 @@ fn write_sync_report(
     }
     if !result.applied {
         writeln!(out, "No files were written.")?;
+    }
+    Ok(())
+}
+
+/// Run watch mode until Ctrl-C (or SIGTERM).
+fn watch_command(
+    cli: &Cli,
+    debounce_ms: u64,
+    out: &mut dyn Write,
+    reporter: &Reporter,
+) -> Result<Outcome, Error> {
+    let project = open_project(cli, reporter)?;
+    project.ensure_source_dir()?;
+
+    let watch = Watch::new();
+    let for_signal = watch.stopper();
+    ctrlc::set_handler(move || for_signal.stop())
+        .map_err(|err| Error::Watch(format!("cannot install the signal handler: {err}")))?;
+
+    // If the output cannot be written (a closed pipe), watching is pointless.
+    let for_output = watch.stopper();
+    let mut write_error: Option<std::io::Error> = None;
+    let options = WatchOptions {
+        debounce: std::time::Duration::from_millis(debounce_ms),
+    };
+    watch.run(project, &options, &mut |notice| {
+        if write_error.is_none()
+            && let Err(err) = present(out, reporter, &notice)
+        {
+            write_error = Some(err);
+            for_output.stop();
+        }
+    })?;
+    match write_error {
+        Some(err) => Err(Error::Output(err)),
+        None => Ok(Outcome::Success),
+    }
+}
+
+/// Render one watch notice: results on stdout (flushed at once, since the
+/// process is long-running), diagnostics on stderr.
+fn present(out: &mut dyn Write, reporter: &Reporter, notice: &Notice) -> std::io::Result<()> {
+    match notice {
+        Notice::Initial(delta) => {
+            report_diagnostics(reporter, delta);
+            writeln!(out, "Initial sync:")?;
+            write_counts(out, delta, true)?;
+            write_problems(out, delta)?;
+        }
+        Notice::Ready {
+            source,
+            directories,
+        } => {
+            writeln!(
+                out,
+                "Watching {} ({directories} directories). Press Ctrl-C to stop.",
+                source.display()
+            )?;
+        }
+        Notice::Synced(delta) => {
+            report_diagnostics(reporter, delta);
+            for file in &delta.changed_files {
+                writeln!(out, "Changed: {}", file.display())?;
+            }
+            writeln!(out, "  Routes affected: {}", delta.routes_affected)?;
+            write_counts(out, delta, false)?;
+            write_problems(out, delta)?;
+        }
+        Notice::Fallback { reason, delta } => {
+            report_diagnostics(reporter, delta);
+            writeln!(out, "Full resync ({reason}):")?;
+            write_counts(out, delta, true)?;
+            write_problems(out, delta)?;
+        }
+        Notice::ConfigReloaded => writeln!(out, "Configuration changed; reloaded.")?,
+        Notice::Problem(diagnostic) => reporter.report(diagnostic),
+        Notice::Stopped => writeln!(out, "Stopped.")?,
+    }
+    out.flush()
+}
+
+fn report_diagnostics(reporter: &Reporter, delta: &Delta) {
+    for diagnostic in &delta.diagnostics {
+        reporter.report(diagnostic);
+    }
+}
+
+fn write_counts(out: &mut dyn Write, delta: &Delta, with_unchanged: bool) -> std::io::Result<()> {
+    let result = &delta.result;
+    write!(
+        out,
+        "  Created: {}  Updated: {}  Deleted: {}  Conflicts: {}",
+        result.created.len(),
+        result.updated.len(),
+        result.deleted.len(),
+        result.conflicts.len()
+    )?;
+    if with_unchanged {
+        write!(out, "  Unchanged: {}", result.unchanged.len())?;
+    }
+    writeln!(out)
+}
+
+/// Conflicts and failed operations, which need the user's attention.
+fn write_problems(out: &mut dyn Write, delta: &Delta) -> std::io::Result<()> {
+    for conflict in &delta.result.conflicts {
+        writeln!(
+            out,
+            "  CONFLICT {}: {}",
+            conflict.path.display(),
+            conflict.reason.description()
+        )?;
+        writeln!(out, "    what to do: {}", conflict.reason.suggestion())?;
+    }
+    for (path, reason) in &delta.result.failed {
+        writeln!(out, "  FAILED {}: {reason}", path.display())?;
     }
     Ok(())
 }

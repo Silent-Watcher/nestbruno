@@ -55,8 +55,20 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Watch the sources and synchronize on change.
-    Watch,
+    /// Watch the sources and keep the collection synchronized.
+    ///
+    /// Only the changed files are re-analyzed. Stops cleanly on Ctrl-C.
+    Watch {
+        /// Quiet time after the last file event before synchronizing, in
+        /// milliseconds.
+        #[arg(
+            long,
+            value_name = "MS",
+            default_value_t = 200,
+            value_parser = clap::value_parser!(u64).range(10..=60_000)
+        )]
+        debounce: u64,
+    },
 }
 
 #[cfg(test)]
@@ -92,6 +104,20 @@ mod tests {
         assert!(matches!(cli.command, Command::Sync { dry_run: true }));
         let cli = Cli::try_parse_from(["nestbruno", "sync"]).unwrap();
         assert!(matches!(cli.command, Command::Sync { dry_run: false }));
+    }
+
+    #[test]
+    fn watch_accepts_a_bounded_debounce() {
+        let cli = Cli::try_parse_from(["nestbruno", "watch"]).unwrap();
+        assert!(matches!(cli.command, Command::Watch { debounce: 200 }));
+        let cli = Cli::try_parse_from(["nestbruno", "watch", "--debounce", "50"]).unwrap();
+        assert!(matches!(cli.command, Command::Watch { debounce: 50 }));
+        for bad in ["0", "9", "60001", "abc", "-5"] {
+            assert!(
+                Cli::try_parse_from(["nestbruno", "watch", "--debounce", bad]).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

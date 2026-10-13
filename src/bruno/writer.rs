@@ -453,6 +453,7 @@ mod tests {
                 handler: "h".into(),
             },
             content: content.to_owned(),
+            stamp: Default::default(),
         }
     }
 

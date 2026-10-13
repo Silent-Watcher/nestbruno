@@ -46,6 +46,9 @@ pub struct GeneratedRequest {
     pub identity: RouteIdentity,
     /// Complete file content.
     pub content: String,
+    /// The stamp line contained in `content`, kept so that consumers do not
+    /// have to parse it back out of the text.
+    pub stamp: stamp::Stamp,
 }
 
 /// The desired set of request files plus what could not be generated.
@@ -68,14 +71,28 @@ pub struct Generation {
 /// warning; they never abort generation of the others.
 pub fn generate(config: &Config, controllers: &[Controller]) -> Generation {
     let mut generation = Generation::default();
+    let folders = folder_names(controllers.iter());
+    for (controller, folder) in controllers.iter().zip(folders) {
+        if let Some(folder) = folder {
+            generate_controller(config, controller, &folder, &mut generation);
+        }
+    }
+    generation
+}
 
-    // Folder names are resolved among the controllers that produce a folder.
-    let with_routes: Vec<&Controller> = controllers
-        .iter()
+/// The folder name of every controller, in input order: `None` for controllers
+/// without routes (they produce no folder).
+///
+/// This is the only *global* part of generation (names are made distinct among
+/// all controllers), and it is cheap: no routes are looked at. The expensive
+/// per-controller work is [`generate_controller`], which depends only on the
+/// controller and its folder name, so callers may cache it.
+pub fn folder_names<'a>(
+    controllers: impl Iterator<Item = &'a Controller> + Clone,
+) -> Vec<Option<String>> {
+    let candidates: Vec<(String, u64)> = controllers
+        .clone()
         .filter(|c| !c.routes.is_empty())
-        .collect();
-    let folder_candidates: Vec<(String, u64)> = with_routes
-        .iter()
         .map(|c| {
             (
                 naming::folder_name(&c.name),
@@ -83,20 +100,26 @@ pub fn generate(config: &Config, controllers: &[Controller]) -> Generation {
             )
         })
         .collect();
-    let folders = naming::resolve_collisions(&folder_candidates);
-
-    for (controller, folder) in with_routes.into_iter().zip(folders) {
-        generate_controller(config, controller, &folder, &mut generation);
-    }
-    generation
+    let mut resolved = naming::resolve_collisions(&candidates).into_iter();
+    controllers
+        .map(|c| {
+            if c.routes.is_empty() {
+                None
+            } else {
+                resolved.next()
+            }
+        })
+        .collect()
 }
 
 struct Pending {
     identity: RouteIdentity,
     content: String,
+    stamp: stamp::Stamp,
 }
 
-fn generate_controller(
+/// Generate the requests of one controller into `generation`.
+pub fn generate_controller(
     config: &Config,
     controller: &Controller,
     folder: &str,
@@ -137,9 +160,13 @@ fn generate_controller(
         let identity = RouteIdentity::of(controller, route);
         let content = serialize(&built.request)
             .map_err(|err| err.to_string())
-            .and_then(|text| stamp::stamp(&text, &identity).map_err(str::to_owned));
+            .and_then(|text| stamp::stamp_with(&text, &identity).map_err(str::to_owned));
         match content {
-            Ok(content) => pending.push(Pending { identity, content }),
+            Ok((content, stamp)) => pending.push(Pending {
+                identity,
+                content,
+                stamp,
+            }),
             Err(err) => {
                 generation.skipped.push(identity);
                 skip(
@@ -167,6 +194,7 @@ fn generate_controller(
             file_name: format!("{stem}.bru"),
             identity: pending.identity,
             content: pending.content,
+            stamp: pending.stamp,
         });
     }
 }

@@ -42,6 +42,15 @@ oxc_allocator = "0.116"
 oxc_ast = "0.116"
 oxc_parser = "0.116"
 oxc_span = "0.116"
+# Filesystem notifications (inotify / FSEvents / ReadDirectoryChangesW), as the
+# prompt requires instead of polling. Mature, widely used (cargo-watch, mdBook,
+# rust-analyzer ecosystem). The stable 8.x line is used on purpose; the 9.x line
+# is still a release candidate. std has no file watching.
+notify = "8"
+# Graceful shutdown on SIGINT/SIGTERM/SIGHUP (and Ctrl-C on Windows) for watch
+# mode. std has no signal handling; the crate is tiny (one extra dependency,
+# nix) and only runs a handler thread.
+ctrlc = { version = "3", features = ["termination"] }
 
 [dev-dependencies]
 # Property-based tests for path composition and the analyzer's "never panics,

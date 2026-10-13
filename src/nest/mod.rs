@@ -15,7 +15,7 @@ pub mod extract;
 use std::fs::{self, File};
 use std::io::Read;
 use std::panic::{self, AssertUnwindSafe};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::thread;
 
 use crate::diag::{Diagnostic, Severity};
@@ -23,7 +23,7 @@ use crate::discovery::ControllerFile;
 use crate::error::Error;
 use crate::project::Project;
 use crate::route::Controller;
-use extract::{MAX_SOURCE_BYTES, PARSER_STACK_BYTES, extract_controllers, too_large};
+use extract::{FileAnalysis, MAX_SOURCE_BYTES, PARSER_STACK_BYTES, extract_controllers, too_large};
 
 /// The analysis of a set of files.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -50,11 +50,31 @@ impl Analysis {
 /// parser's worst case (see [`PARSER_STACK_BYTES`]). The stack is virtual
 /// memory that is only committed if a file is actually deeply nested.
 pub fn analyze_files(project: &Project, files: &[ControllerFile]) -> Result<Analysis, Error> {
+    let mut analysis = Analysis::default();
+    for (_, mut result) in analyze_each(project, files)? {
+        analysis.controllers.append(&mut result.controllers);
+        analysis.diagnostics.append(&mut result.diagnostics);
+    }
+    Ok(analysis)
+}
+
+/// Like [`analyze_files`], but keeps the result of each file separate (in the
+/// order of `files`). Incremental synchronization needs to know which file
+/// produced which controllers.
+pub fn analyze_each(
+    project: &Project,
+    files: &[ControllerFile],
+) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
     thread::scope(|scope| {
         let worker = thread::Builder::new()
             .name("nestbruno-analyze".to_owned())
             .stack_size(PARSER_STACK_BYTES)
-            .spawn_scoped(scope, || analyze_all(project.root(), files))
+            .spawn_scoped(scope, || {
+                files
+                    .iter()
+                    .map(|file| (file.path.clone(), analyze_one(project.root(), &file.path)))
+                    .collect()
+            })
             .map_err(Error::AnalysisThread)?;
         // Panics inside the worker are caught per file; a join error would
         // mean a bug outside that guard.
@@ -64,39 +84,42 @@ pub fn analyze_files(project: &Project, files: &[ControllerFile]) -> Result<Anal
     })
 }
 
-fn analyze_all(root: &Path, files: &[ControllerFile]) -> Analysis {
-    let mut analysis = Analysis::default();
-    for file in files {
-        let source = match read_source(root, &file.path) {
-            Ok(source) => source,
-            Err(diagnostic) => {
-                analysis.diagnostics.push(diagnostic);
-                continue;
-            }
-        };
-
-        // Defence in depth: the parser is third-party code fed untrusted
-        // input. A panic in it must cost one file, not the whole run.
-        match guarded(|| extract_controllers(&file.path, &source)) {
-            Ok(mut result) => {
-                if result.controllers.is_empty() && result.diagnostics.is_empty() {
-                    analysis.diagnostics.push(Diagnostic::new(
-                        Severity::Note,
-                        Some(file.path.clone()),
-                        "no @Controller class found",
-                    ));
-                }
-                analysis.controllers.append(&mut result.controllers);
-                analysis.diagnostics.append(&mut result.diagnostics);
-            }
-            Err(message) => analysis.diagnostics.push(Diagnostic::new(
-                Severity::Error,
-                Some(file.path.clone()),
-                format!("internal error while analyzing this file ({message}); please report a bug. No routes were extracted from it"),
-            )),
+/// Read and analyze one file. Problems become diagnostics of that file.
+fn analyze_one(root: &Path, relative: &Path) -> FileAnalysis {
+    let source = match read_source(root, relative) {
+        Ok(source) => source,
+        Err(diagnostic) => {
+            return FileAnalysis {
+                controllers: Vec::new(),
+                diagnostics: vec![diagnostic],
+            };
         }
+    };
+
+    // Defence in depth: the parser is third-party code fed untrusted input. A
+    // panic in it must cost one file, not the whole run.
+    match guarded(|| extract_controllers(relative, &source)) {
+        Ok(mut result) => {
+            if result.controllers.is_empty() && result.diagnostics.is_empty() {
+                result.diagnostics.push(Diagnostic::new(
+                    Severity::Note,
+                    Some(relative.to_owned()),
+                    "no @Controller class found",
+                ));
+            }
+            result
+        }
+        Err(message) => FileAnalysis {
+            controllers: Vec::new(),
+            diagnostics: vec![Diagnostic::new(
+                Severity::Error,
+                Some(relative.to_owned()),
+                format!(
+                    "internal error while analyzing this file ({message}); please report a bug. No routes were extracted from it"
+                ),
+            )],
+        },
     }
-    analysis
 }
 
 /// Read one source file: regular files only, bounded size, UTF-8.

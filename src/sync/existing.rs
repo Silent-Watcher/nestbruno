@@ -4,7 +4,6 @@
 //! followed, `.git` and `node_modules` are not entered, results are sorted,
 //! each file is read at most once and read in bounded size.
 
-use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -78,10 +77,13 @@ pub fn classify(text: &str) -> Kind {
     }
 }
 
+/// Text of unstamped files up to this size is kept, so that an unstamped file
+/// sitting where a request would be created can be compared with it.
+const KEEP_TEXT_BYTES: usize = 64 * 1024;
+
 /// Load the collection `root/bruno_dir`. A missing directory is an empty
-/// collection. `wanted` holds lower-cased relative paths (`Folder/file.bru`)
-/// whose text must be kept even for unstamped files.
-pub fn load(root: &Path, bruno_dir: &Path, wanted: &HashSet<String>) -> Result<Existing, Error> {
+/// collection.
+pub fn load(root: &Path, bruno_dir: &Path) -> Result<Existing, Error> {
     let components = relative_components(bruno_dir).ok_or_else(|| Error::UnsafeOutput {
         path: bruno_dir.to_owned(),
         reason: "the collection directory must be a relative path without '..'".to_owned(),
@@ -168,7 +170,6 @@ pub fn load(root: &Path, bruno_dir: &Path, wanted: &HashSet<String>) -> Result<E
                     &entry.path(),
                     rel,
                     bruno_dir,
-                    wanted,
                     &mut existing.diagnostics,
                 ));
             }
@@ -176,6 +177,49 @@ pub fn load(root: &Path, bruno_dir: &Path, wanted: &HashSet<String>) -> Result<E
     }
     existing.files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(existing)
+}
+
+/// Re-read one file of the collection from disk. `None` if it no longer
+/// exists. Problems are returned as diagnostics, like [`load`].
+pub fn reload(
+    root: &Path,
+    bruno_dir: &Path,
+    relative: &Path,
+) -> Result<(Option<ExistingFile>, Vec<Diagnostic>), Error> {
+    let components = relative_components(bruno_dir).ok_or_else(|| Error::UnsafeOutput {
+        path: bruno_dir.to_owned(),
+        reason: "the collection directory must be a relative path without '..'".to_owned(),
+    })?;
+    let collection = match existing_dir(root, &components) {
+        Ok(path) => path,
+        Err(_) if !exists_at_all(root, &components) => return Ok((None, Vec::new())),
+        Err(reason) => {
+            return Err(Error::UnsafeOutput {
+                path: bruno_dir.to_owned(),
+                reason,
+            });
+        }
+    };
+    let path = collection.join(relative);
+    let mut diagnostics = Vec::new();
+    // Never read through a symlinked folder or file.
+    let mut walk = collection.clone();
+    if let Some(parent) = relative.parent() {
+        for part in parent.components() {
+            walk.push(part);
+            if fs::symlink_metadata(&walk).is_ok_and(|m| !m.is_dir()) {
+                return Ok((None, diagnostics));
+            }
+        }
+    }
+    match fs::symlink_metadata(&path) {
+        Ok(meta) if meta.is_file() => {
+            let file = read_one(&path, relative.to_owned(), bruno_dir, &mut diagnostics);
+            Ok((Some(file), diagnostics))
+        }
+        Ok(_) => Ok((None, diagnostics)),
+        Err(_) => Ok((None, diagnostics)),
+    }
 }
 
 fn exists_at_all(root: &Path, components: &[String]) -> bool {
@@ -193,7 +237,6 @@ fn read_one(
     path: &Path,
     rel: PathBuf,
     bruno_dir: &Path,
-    wanted: &HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> ExistingFile {
     let invalid = |reason: String, full_hash: u64| ExistingFile {
@@ -243,8 +286,7 @@ fn read_one(
             format!("{reason}; left untouched"),
         ));
     }
-    let keep = matches!(kind, Kind::Generated { .. })
-        || wanted.contains(&rel.to_string_lossy().replace('\\', "/").to_lowercase());
+    let keep = matches!(kind, Kind::Generated { .. }) || text.len() <= KEEP_TEXT_BYTES;
     ExistingFile {
         path: rel,
         full_hash: content_hash(&text),
@@ -269,7 +311,7 @@ mod tests {
     }
 
     fn load_all(root: &Path) -> Existing {
-        load(root, Path::new("bruno"), &HashSet::new()).unwrap()
+        load(root, Path::new("bruno")).unwrap()
     }
 
     fn names(existing: &Existing) -> Vec<String> {
@@ -359,13 +401,16 @@ mod tests {
     }
 
     #[test]
-    fn text_is_kept_for_stamped_and_wanted_files_only() {
+    fn text_is_kept_for_stamped_files_and_small_unknown_files_only() {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "bruno/Gen/g.bru", &generated_text());
-        write(dir.path(), "bruno/Other/o.bru", "meta {\n}\n");
-        write(dir.path(), "bruno/Want/w.bru", "meta {\n}\n");
-        let wanted: HashSet<String> = ["want/w.bru".to_owned()].into();
-        let existing = load(dir.path(), Path::new("bruno"), &wanted).unwrap();
+        write(dir.path(), "bruno/Other/small.bru", "meta {\n}\n");
+        write(
+            dir.path(),
+            "bruno/Other/big.bru",
+            &"x".repeat(KEEP_TEXT_BYTES + 1),
+        );
+        let existing = load_all(dir.path());
         let kept: Vec<_> = existing
             .files
             .iter()
@@ -380,10 +425,49 @@ mod tests {
             kept,
             [
                 ("Gen/g.bru".into(), true),
-                ("Other/o.bru".into(), false),
-                ("Want/w.bru".into(), true)
+                ("Other/big.bru".into(), false),
+                ("Other/small.bru".into(), true)
             ]
         );
+    }
+
+    #[test]
+    fn reload_rereads_one_file_and_reports_absence() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "bruno/Users/a.bru", &generated_text());
+        let (file, diagnostics) =
+            reload(dir.path(), Path::new("bruno"), Path::new("Users/a.bru")).unwrap();
+        assert!(matches!(
+            file.unwrap().kind,
+            Kind::Generated {
+                modified: false,
+                ..
+            }
+        ));
+        assert!(diagnostics.is_empty());
+        assert!(
+            reload(
+                dir.path(),
+                Path::new("bruno"),
+                Path::new("Users/missing.bru")
+            )
+            .unwrap()
+            .0
+            .is_none()
+        );
+        assert!(
+            reload(dir.path(), Path::new("bruno"), Path::new("Nope/x.bru"))
+                .unwrap()
+                .0
+                .is_none()
+        );
+        let (none, _) = reload(
+            dir.path().join("missing").as_path(),
+            Path::new("bruno"),
+            Path::new("a.bru"),
+        )
+        .unwrap();
+        assert!(none.is_none());
     }
 
     #[test]
@@ -470,7 +554,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let outside = tempfile::tempdir().unwrap();
             symlink(outside.path(), dir.path().join("bruno")).unwrap();
-            let err = load(dir.path(), Path::new("bruno"), &HashSet::new()).unwrap_err();
+            let err = load(dir.path(), Path::new("bruno")).unwrap_err();
             assert!(matches!(err, Error::UnsafeOutput { .. }), "{err}");
         }
 

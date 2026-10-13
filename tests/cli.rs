@@ -122,14 +122,6 @@ fn check_with_missing_project_directory_fails() {
 }
 
 #[test]
-fn watch_is_reported_as_not_implemented() {
-    let project = TestProject::new();
-    let output = project.run(&["watch"]);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(stderr(&output).contains("not implemented"));
-}
-
-#[test]
 fn verbose_mentions_defaults_when_no_config_exists() {
     let project = TestProject::new();
     project.write("src/a.ts", "");

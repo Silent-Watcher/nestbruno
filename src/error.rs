@@ -78,11 +78,11 @@ pub enum Error {
     #[error("cannot start the source analysis worker thread: {0}")]
     AnalysisThread(#[source] std::io::Error),
 
+    #[error("cannot watch for changes: {0}")]
+    Watch(String),
+
     #[error("{} already exists: refusing to overwrite it", path.display())]
     AlreadyExists { path: PathBuf },
-
-    #[error("`{command}` is not implemented yet (planned for phase {phase}, see docs/roadmap.md)")]
-    NotImplemented { command: &'static str, phase: u8 },
 }
 
 impl Error {
@@ -99,8 +99,8 @@ impl Error {
             | Self::Output(_)
             | Self::AnalysisThread(_)
             | Self::UnsafeOutput { .. }
-            | Self::AlreadyExists { .. }
-            | Self::NotImplemented { .. } => exit_code::FAILURE,
+            | Self::Watch(_)
+            | Self::AlreadyExists { .. } => exit_code::FAILURE,
         }
     }
 }
@@ -130,10 +130,7 @@ mod tests {
 
     #[test]
     fn runtime_errors_use_the_failure_exit_code() {
-        let err = Error::NotImplemented {
-            command: "sync",
-            phase: 5,
-        };
+        let err = Error::Watch("limit reached".into());
         assert_eq!(err.exit_code(), exit_code::FAILURE);
     }
 

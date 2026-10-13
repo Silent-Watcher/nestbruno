@@ -44,7 +44,7 @@ use std::path::PathBuf;
 
 use super::existing::{Existing, Kind};
 use super::{Action, ConflictReason, Desired, Plan, PlanEntry};
-use crate::bruno::stamp::{self, Parsed};
+use crate::bruno::stamp;
 use crate::diag::{Diagnostic, Severity};
 
 struct Want<'a> {
@@ -90,14 +90,7 @@ pub fn plan(desired: &Desired<'_>, existing: &Existing) -> Plan {
     // ---- desired side
     let mut wants: Vec<Want<'_>> = Vec::new();
     for request in desired.requests {
-        let Parsed::Stamped(s) = stamp::parse(&request.content) else {
-            plan.diagnostics.push(Diagnostic::new(
-                Severity::Error,
-                Some(PathBuf::from(&request.folder).join(&request.file_name)),
-                "internal error: a generated request carries no valid stamp; it was skipped",
-            ));
-            continue;
-        };
+        let s = request.stamp;
         wants.push(Want {
             id: s.id,
             key: s.key,
