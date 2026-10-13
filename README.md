@@ -26,6 +26,7 @@ nestbruno routes   # print the HTTP routes found in them
 nestbruno generate # write a Bruno request per route (never overwrites without --force)
 nestbruno sync     # update the collection safely; your edits are never overwritten
 nestbruno sync --dry-run   # show what sync would do
+nestbruno watch    # keep the collection in sync while you edit
 ```
 
 ## Supported capabilities

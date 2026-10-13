@@ -40,9 +40,24 @@ not claim protections that are not implemented and tested.
 Documented here so they are designed in, not forgotten:
 
 - Safe Git invocation without shell interpolation (Phase 8).
-- Bounded watcher event queues (Phase 7).
+
+## Watch mode
+
+| Threat | Mitigation | Tested |
+| --- | --- | --- |
+| Unbounded event queues / memory | Bounded channel; overflow flag; coalescer degrades past 10,000 paths to a full recompute; remembered diagnostics capped | unit tests; 1,500-edit session test |
+| Feedback loops (our own writes re-triggering sync) | The collection directory is never watched and never a source, even when inside the source tree; nothing in the sources is ever written | end-to-end tests (`source = "."` too); mutation-checked |
+| Watching dependency or VCS trees | Watches are per directory and follow discovery's pruning (`.git`, `node_modules`, excludes, depth) | end-to-end test counting watched directories |
+| Untrusted event paths | Paths outside the project are ignored; symlinks and special files are never followed; every path is re-stat'ed before use | unit tests |
+| Acting on a transient or partial state | Events are hints; a file that fails to parse keeps its last good routes and **nothing is deleted** while any file is unparsable; configuration changes are debounced | unit + end-to-end tests; mutation-checked |
+| Stale in-memory view of the collection | Every replace/delete re-verifies the file hash; on mismatch the file is re-read and the plan recomputed once; user edits become conflicts | unit tests; mutation-checked |
+| Partial files on shutdown | Writes are atomic; the loop finishes the batch in progress before stopping | end-to-end test |
 
 ## Known gaps
+
+- Watch mode does not watch the collection: edits made in Bruno while it runs
+  are noticed when a write would touch them (verification) or at the next full
+  recomputation, not immediately.
 
 - The pre-write hash re-check narrows but does not close the window between check and write. The stamp hash is FNV-1a 64: not collision resistant against deliberate forgery by someone who can already edit the collection.
 - Check-then-write races on the collection directory: another process could

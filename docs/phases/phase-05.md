@@ -254,7 +254,8 @@ See `git log`: `feat: add Bruno synchronization and reconciliation`,
 
 ## What later phases build on
 
-`reconcile::plan` takes the full desired set and the full existing set; Phase 6
-(incremental) needs a variant limited to affected routes and files, built on
-the same rules and `SyncResult`. `SyncResult` and `Plan` are the input for
-watch-mode output and dry-run reporting (Phase 9).
+Phase 6 reuses `reconcile::plan`, `apply` and `SyncResult` unchanged, feeding
+them an in-memory view instead of re-reading the collection (see
+[phase-06.md](phase-06.md)); a restricted-to-affected-routes variant was
+considered and deliberately not built, because measurements did not call for
+it. `Plan` and `SyncResult` remain the input for any further reporting.

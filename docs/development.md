@@ -59,5 +59,17 @@ symlink notes and, for `discover`, the number of directories listed.
 
 ## Profiling
 
-Not yet needed; profiling guidance will be added with Phase 10, which is
-driven by measurements.
+No profiler is required. The numbers quoted in the phase documents come from
+small throw-away `examples/` programs timing `Workspace` calls and from
+`nestbruno` runs on generated trees; none is kept in the repository yet. A
+benchmark suite is planned with the hardening phase.
+
+### Watch mode
+
+`nestbruno watch -v` prints extra diagnostics (notes, per-file lines) to stderr.
+On Linux the number of watched directories is limited by
+`fs.inotify.max_user_watches`; watch mode reports a clear error if it is
+reached. The end-to-end tests (`tests/watch.rs`, Unix only) start the real
+binary and wait for output lines instead of sleeping; they use `kill` to send
+signals. Run them in a loop (`for i in $(seq 50); do cargo test --test watch; done`)
+after touching the event loop: they found a real race once.

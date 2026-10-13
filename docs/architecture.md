@@ -24,6 +24,8 @@ components are marked *planned* and are not implemented.
 | `sync/existing.rs` | Discovers and classifies existing `.bru` files (generated / modified / unknown / invalid). |
 | `sync/reconcile.rs` | Pure `plan(desired, existing)`: matching, conflicts, deletions. No filesystem. |
 | `sync/apply.rs`, `sync/mod.rs` | Execute a plan through verified writes; `SyncResult` (terminal independent); `synchronize()`. |
+| `workspace.rs` | Incremental state for long-running modes: per-file analysis, per-controller generation cache, in-memory index of the collection; `refresh(dirty paths)` and `resync()`. |
+| `watch/events.rs`, `watch/mod.rs` | Event normalization and debounce (pure); the watch loop, per-directory watches, shutdown. |
 | `bruno/writer.rs` | The only code that writes: containment, symlink refusal, overwrite policy, atomic files. |
 | `diag.rs` | `Diagnostic`, `Severity`, and the stderr `Reporter`. |
 | `error.rs` | The fatal `Error` enum and exit-code mapping. |
@@ -83,7 +85,7 @@ Discovery.files ─▶ analyze_files (worker thread, large stack)
 ```
 
 - One read and one parse per file per run; the AST (arena allocated) is dropped
-  when the file's IR is built. Nothing is cached (Phase 6).
+  when the file's IR is built. Nothing is cached by one-shot commands; watch mode keeps per-file state (see Watch mode).
 - Syntax error ⇒ **no** routes from that file and one `error` diagnostic with
   `file:line:col`. A recovered AST is never used, so routes are never silently
   dropped from a half-parsed file.
@@ -105,7 +107,7 @@ Analysis.controllers ─▶ generate()  ─▶ Vec<GeneratedRequest>   (pure, de
 The parser knows nothing about Bruno and the generator never reads source or
 existing `.bru` files; the route IR is the only boundary. Computing the desired
 state is separate from writing it, which is what reconciliation (Phase 5) and
-dry-run (Phase 9) need. Details, format verification and policies:
+dry-run need. Details, format verification and policies:
 [phases/phase-04.md](phases/phase-04.md).
 
 ## Synchronization
@@ -119,6 +121,26 @@ existing::load ─▶ classified ───┘                              (skip
 Ownership comes from a stamp in each generated request; a file counts as
 modified when its content no longer hashes to the stamp. Rules, conflicts and
 safety guarantees: [phases/phase-05.md](phases/phase-05.md).
+
+## Watch mode
+
+```text
+notify callback ─▶ bounded channel ─▶ loop ─▶ Coalescer (debounce) ─▶ dirty paths
+                                                                          │
+   Workspace::refresh: re-stat + re-read + re-parse ONLY those files ◀────┘
+        │ replace their routes · regenerate only affected controllers (cached)
+        ▼
+   reconcile::plan (same pure rules as `sync`, over in-memory state)
+        ▼
+   apply only the planned changes ─▶ Delta ─▶ Notice ─▶ terminal
+```
+
+Events are hints: a path is merely dirty, and processing looks at the file as
+it is now, so event order and rename sequences cannot misrepresent the state.
+Lost events, watcher errors and failed incremental steps fall back to a full
+recomputation from disk. A property test asserts that any history of source
+changes yields the same collection as a fresh `sync` of the final state.
+Details, measurements and limits: [phases/phase-06.md](phases/phase-06.md).
 
 ## Planned components (not implemented)
 

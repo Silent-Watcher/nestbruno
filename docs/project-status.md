@@ -25,6 +25,12 @@
   Property-tested: syncing a history of changes equals syncing the final state
   once.
 
+- **Phase 6 (watch and incremental synchronization):** `watch` keeps the
+  collection synchronized with the changed files only, with debounced
+  filesystem events, per-controller caching, safe handling of broken files,
+  configuration reload, clean shutdown and full-recompute fallbacks. Property
+  test: any history of changes equals a fresh sync.
+
 ## Commands
 
 | Command | State |
@@ -35,7 +41,7 @@
 | `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format, not a stable machine interface). |
 | `generate [--force]` | Works: writes request files; existing differing files are left alone unless `--force`; nothing is ever deleted. |
 | `sync [--dry-run]` | Works: creates, updates in place, deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
-| `watch` | Loads the project, then fails with "not implemented". |
+| `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
 
 ## Current limitations
 
@@ -49,13 +55,19 @@
 - No field-level merge: any user edit locks the whole request (conflict if its
   route changes). `seq` is user-owned after creation.
 - Nothing is deleted while source discovery/analysis is incomplete.
-- Sync reads every existing `.bru` file each run (no incremental mode yet).
+- `sync` still reads every existing `.bru` file per run; `watch` keeps an
+  in-memory index instead, but does not watch the collection (edits made in
+  Bruno meanwhile are caught by write-time verification).
+- Watch mode costs one linear in-memory reconciliation pass per batch
+  (roughly 10 to 20 ms at 5,000 routes and 70 to 100 ms at 20,000, from
+  noisy sandbox runs); parsing and writes are
+  proportional to the change.
 - `@All`, unresolved/array paths and paths with `?`, `#`, whitespace or `{{`
   are not generated; bodies are skeletons; no environment or `folder.bru` is
   created (`baseUrl` must be defined in a Bruno environment).
 - Output verified with Bruno's parser library, not by opening the desktop app.
 - Discovery measurement so far: ad-hoc runs on synthetic trees (100,000-file
-  discovery; 5,000-controller extraction, 5,000-file generation; 5,000-request sync; see the phase documents). No benchmark suite exists yet (Phase 10).
+  discovery; 5,000-controller extraction, 5,000-file generation; 5,000-request sync; see the phase documents). No benchmark suite exists yet (planned with the hardening phase).
 - CI is configured for Linux, macOS and Windows but has only been exercised
   locally on Linux.
 - No `LICENSE` file has been chosen yet (owner decision).
