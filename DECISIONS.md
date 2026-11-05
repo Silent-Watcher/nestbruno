@@ -1,0 +1,34 @@
+# DECISIONS.md — architectural decision index
+
+Full rationale lives in the linked phase documents; this is the index an
+agent must consult before changing any of these areas. Reversing a decision
+requires a concrete reason recorded next to the phase doc.
+
+| # | Decision | Where | Why it exists |
+| --- | --- | --- | --- |
+| 1 | Library crate holds all behavior; `main.rs` is a thin binary | phase-01 | every path testable without spawning a process |
+| 2 | `nestbruno.toml`: all keys optional, `deny_unknown_fields`, size cap 1 MiB | phase-01, `src/config.rs` | zero-config start; typos are errors not defaults |
+| 3 | Discovery is path-only ("Option A"); `@Controller` verification deferred to AST analysis | phase-02 | no file reads during discovery; clean reuse by watch |
+| 4 | oxc 0.116 as the single TypeScript parser (one release train; pins Rust 1.91) | phase-03, `Cargo.toml` | mature, fast, no regex parsing, no execution |
+| 5 | Syntax error ⇒ **no routes** from that file (recovered AST never used) | phase-03 | never silently drop routes from a half-parsed file |
+| 6 | Route IR is the only parser↔Bruno boundary; generator never reads source or `.bru` | phase-03/04 | enables incremental, watch, and future outputs (OpenAPI) |
+| 7 | One folder per controller, one `.bru` per route; kebab-case; `-<8 hex>` collision suffixes; Windows reserved names | phase-04, `bruno/naming.rs` | deterministic, collision-safe, readable |
+| 8 | Route identity = FNV-1a 64 over controller+method+path+handler, in three tiers (`id`/`key`/`anchor`) | phase-04/05, `bruno/identity.rs` | renames/moves/update-in-place without UUIDs or timestamps |
+| 9 | Ownership stamp lives in the `docs` block (Bruno drops unknown `meta` keys, keeps `docs`) | phase-05, `bruno/stamp.rs` | survives Bruno round-trips; user-visible but claim-verified |
+| 10 | Reconciler is pure; apply re-verifies every hash and path before writing | phase-05 | plan-then-write safety; dry-run is the same plan |
+| 11 | Critical conflicts (duplicate identities) block **all** writes | phase-05 | never half-apply an ambiguous collection |
+| 12 | Deletions only when analysis is complete (`is_incomplete()` gate) | phase-05/06 | broken source must never cause destructive sync |
+| 13 | Watch events are hints (dirty set + re-stat), with full-resync fallbacks | phase-06, `workspace.rs` | event order/rename ambiguity cannot corrupt state |
+| 14 | Watch keeps last-good routes for files that fail to parse | phase-06 | editors save transiently broken files |
+| 15 | `bruno.json` is created once, never replaced, hardcoded `"API"`/`"collection"` version 1 | phase-04, `bruno/writer.rs` | tool never clobbers collection metadata |
+| 16 | `sync` re-reads all `.bru` per run; watch keeps an in-memory index (no persistent cache anywhere) | phase-05/06 | simplicity; persistent caching deliberately deferred |
+| 17 | Exit codes 0/1/2/3/4; "incomplete" (4) is an `Outcome`, not an `Error` | phase-01, `error.rs` | recoverable per-path problems are not fatal |
+| 18 | Watch e2e tests are Unix-only, wait on output lines instead of sleeps | phase-06 | determinism without timing flakiness |
+
+## Deliberately *not* decided / open
+
+- **License**: none chosen (owner decision; blocks publication — Phase 8).
+- **Benchmark suite**: none; first one planned for Phase 8.
+- **Git access for Phase 7**: prompt prefers a mature Rust library over
+  shelling out; exact crate choice happens in Phase 7 and must be recorded
+  here and in phase-07.md.
