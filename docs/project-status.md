@@ -31,6 +31,14 @@
   configuration reload, clean shutdown and full-recompute fallbacks. Property
   test: any history of changes equals a fresh sync.
 
+- **Phase 7 (staged Git synchronization):** `sync --staged` analyzes the
+  state the Git index represents (staged content, never the working tree)
+  through libgit2, reconstructs the desired routes from the full index when
+  anything relevant is staged, and reconciles with the Phase 5 rules —
+  including staged deletions and renames (updated in place). No relevant
+  staged change is a clean no-op; dry run works; the Git index is never
+  modified.
+
 ## Commands
 
 | Command | State |
@@ -41,6 +49,7 @@
 | `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format, not a stable machine interface). |
 | `generate [--force]` | Works: writes request files; existing differing files are left alone unless `--force`; nothing is ever deleted. |
 | `sync [--dry-run]` | Works: creates, updates in place, deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
+| `sync --staged [--dry-run]` | Works: the same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git. |
 | `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
 
 ## Current limitations
@@ -58,6 +67,11 @@
 - `sync` still reads every existing `.bru` file per run; `watch` keeps an
   in-memory index instead, but does not watch the collection (edits made in
   Bruno meanwhile are caught by write-time verification).
+- `sync --staged` always analyzes the full index state (no incremental
+  staged analysis): correct by construction, linear in the project size.
+  Untracked files are invisible to it by definition, staged configuration
+  changes are not modeled, and a concurrent `git add` during the run is
+  picked up on the next run (snapshot semantics).
 - Watch mode costs one linear in-memory reconciliation pass per batch
   (roughly 10 to 20 ms at 5,000 routes and 70 to 100 ms at 20,000, from
   noisy sandbox runs); parsing and writes are

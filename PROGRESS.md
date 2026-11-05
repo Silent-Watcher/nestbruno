@@ -16,7 +16,7 @@ drift from the newer toolchain (1.99.0) was found and fixed on that date; see
 | 4 | Bruno generation | **Completed** |
 | 5 | Synchronization / reconciliation | **Completed** |
 | 6 | Watch mode + incremental synchronization | **Completed** |
-| 7 | Git staged synchronization | **Not Started** |
+| 7 | Git staged synchronization | **Completed** |
 | 8 | Production hardening / release readiness | **Not Started** |
 | 9 | Advanced route semantics & request metadata | **Not Started** |
 | 10 | OpenAPI interoperability | **Not Started** |
@@ -107,6 +107,24 @@ Phase 6. `docs/roadmap.md` records this mapping.
   stops; no temp files left.
 - Verified: 20 watch e2e tests (Unix-only, no fixed sleeps) + unit/proptest
   coverage incl. "any history ≡ fresh sync" (40 histories).
+
+## Phase 7 — Git staged synchronization — Completed (2026-11-06)
+
+- `sync --staged [--dry-run]`: analyzes the Git **index** state through
+  libgit2 (`git2` 0.21, `src/staged.rs`), never the working-tree version of
+  a staged file. The gate: staged deltas filtered by the Phase 2 matcher;
+  no relevant staged change ⇒ clean no-op. The state: desired routes
+  reconstructed from **all** relevant index entries (correctness invariant
+  tested byte-for-byte against a materialized staged project).
+- Added/modified/deleted/renamed (rename via `diff.find_similar`, requests
+  updated in place by the Phase 5 fingerprints); unborn HEAD = empty tree;
+  nested project roots mapped; conflicted paths excluded with an error
+  diagnostic (nothing deleted while incomplete).
+- `nest/mod.rs::analyze_sources` — in-memory analysis on the same
+  big-stack worker (the prompt's `SourceInput` hook).
+- Never mutates Git (no index/HEAD writes, no hooks, no subprocess).
+- Verified: 13 unit + 14 integration tests (470 total); fmt + clippy
+  `-D warnings` green. Doc: `docs/phases/phase-07.md`.
 
 ## Known gaps inside completed phases
 

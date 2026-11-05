@@ -57,6 +57,19 @@ preserved; nothing is deleted when any source file failed to analyze.
 With `--dry-run` the same plan is printed and **nothing** is written — not
 even the collection directory. Exit code 0 even when changes are pending.
 
+### `nestbruno sync --staged [--dry-run]`
+
+Synchronize against the **Git index** instead of the working tree: the
+routes analyzed are those of the staged content, exactly what is about to be
+committed. Behavior:
+
+- a staged addition/modification updates requests from the staged content;
+- a staged deletion reconciles its requests;
+- a staged rename updates requests in place;
+- if nothing relevant is staged, it is a clean no-op;
+- Git is never modified, and the working-tree version of a staged file is
+  never read.
+
 ## `nestbruno watch [--debounce <MS>]`
 
 Runs an initial sync, then keeps the collection synchronized while you edit.

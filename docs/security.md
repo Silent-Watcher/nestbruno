@@ -33,13 +33,15 @@ not claim protections that are not implemented and tested.
 | Ambiguous ownership (cloned requests, duplicate routes) | Critical conflict: nothing is written. | unit + integration tests |
 | Forged or malformed stamps | A stamp is only a claim: modification is judged by the hash; malformed or duplicated stamps are conflicts; foreign files are never matched. | unit + property + integration tests |
 | Discovery writes or executes anything | It only lists directories and inspects file types; it never reads file contents. | by construction |
-| Shell injection | No command is ever built from project data. No subprocesses exist yet. | by construction |
+| Shell injection | No command is ever built from project data. No subprocesses exist (Git is accessed through the libgit2 C API, not a `git` process). | by construction |
+| Malicious Git index/HEAD content (staged sync) | Index paths must be plain relative components; non-UTF-8 paths ignored; entries outside the project/source filtered before any read; blobs size-capped and UTF-8-checked like files; libgit2 runs no hooks and never spawns processes; the index is only read, never written. | unit + integration tests |
+| Git state changing mid-run (staged sync) | The index is snapshotted once; later changes belong to the next run. Conflicted (unmerged) paths are excluded and make the run incomplete — nothing is deleted. | unit + integration tests |
 
 ## Planned (not yet implemented)
 
 Documented here so they are designed in, not forgotten:
 
-- Safe Git invocation without shell interpolation (Phase 8).
+- Automated `cargo audit` in CI (Phase 8).
 
 ## Watch mode
 

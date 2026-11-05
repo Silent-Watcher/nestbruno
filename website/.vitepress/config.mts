@@ -44,7 +44,8 @@ export default defineConfig({
             { text: 'Phase 3 — Route Extraction', link: '/phases/phase-03' },
             { text: 'Phase 4 — Bruno Generation', link: '/phases/phase-04' },
             { text: 'Phase 5 — Synchronization', link: '/phases/phase-05' },
-            { text: 'Phase 6 — Watch Mode', link: '/phases/phase-06' }
+            { text: 'Phase 6 — Watch Mode', link: '/phases/phase-06' },
+            { text: 'Phase 7 — Staged Synchronization', link: '/phases/phase-07' }
           ]
         }
       ]

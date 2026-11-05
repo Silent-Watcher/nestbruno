@@ -1,26 +1,24 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-06, after the Phase 1–6 audit, quality-gate run and
-the documentation website build.*
+*Last updated: 2026-11-06, after Phase 7.*
 
 ## One-paragraph state
 
 NestBruno is a Rust CLI (edition 2024, MSRV 1.91) that statically syncs
-NestJS HTTP routes into a Bruno collection. **Phases 1–6 of 10 are
+NestJS HTTP routes into a Bruno collection. **Phases 1–7 of 10 are
 complete** (foundation, discovery, AST route extraction, Bruno generation,
-reconciliation sync + dry-run, watch mode with incremental sync). The
-codebase is clean: no TODOs, no `unsafe`, no `unwrap` outside tests, docs in
-`docs/` match the implementation closely. A VitePress documentation site
-lives in `website/` (landing page, animated logo, local search, full guide
-for Phases 1–6; `npm run build` is green and was visually verified). Next
-phase is **Phase 7: Git staged synchronization** (`sync --staged`).
+reconciliation sync + dry-run, watch mode with incremental sync, staged Git
+synchronization). The codebase is clean: no TODOs, no `unsafe`, no `unwrap`
+outside tests, docs in `docs/` match the implementation closely. A VitePress
+documentation site lives in `website/` (landing page, animated logo, local
+search, guide for Phases 1–7; `npm run build` is green). Next phase is
+**Phase 8: production hardening / release readiness**.
 
 ## Build & test status (verified 2026-11-06, toolchain stable 1.99.0)
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass
-  (after fixing 2 new-lint hits in `src/config.rs`; see KNOWN_ISSUES)
-- `cargo test --all-features` — pass, 443 tests (317 lib + 126 integration)
+- `cargo test --all-features` — pass, 470 tests (330 lib + 140 integration)
 - Sandbox note: rustup proxies fail with `unknown proxy name: 'ZCode-…'`;
   prepend `~/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin` to PATH
   (recorded in [AGENTS.md](AGENTS.md)).
@@ -35,6 +33,7 @@ phase is **Phase 7: Git staged synchronization** (`sync --staged`).
 | `routes` | prints routes/params/locations |
 | `generate [--force]` | writes `.bru` requests; never deletes; overwrite only with `--force` |
 | `sync [--dry-run]` | create/update-in-place/delete-unmodified-generated; conflicts preserved & reported (exit 4) |
+| `sync --staged [--dry-run]` | same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git |
 | `watch [--debounce MS]` | incremental sync on change; clean shutdown; fallbacks to full resync |
 
 Details: [docs/project-status.md](docs/project-status.md).
@@ -58,20 +57,16 @@ does one linear reconcile pass per batch. Full list:
 
 ## Next steps
 
-0. **Documentation site** (`website/`, done): VitePress with local search,
+0. **Documentation site** (`website/`): VitePress with local search,
    animated SVG logo (respects `prefers-reduced-motion`), landing page and
-   complete Phases 1–6 guide. Commands: `npm run dev` / `npm run build` /
+   the guide through Phase 7. Commands: `npm run dev` / `npm run build` /
    `npm run preview` inside `website/`. Content mirrors `docs/`; keep both
    consistent when behavior changes.
-1. **Phase 7 — Git staged synchronization** (`sync --staged`). Starting
-   point: the analyzer currently reads only filesystem files
-   (`nest/mod.rs::analyze_files`); the prompts call for a `SourceInput`
-   (filesystem | in-memory) abstraction so staged content can be parsed
-   without the parser learning about Git. Phase-06 doc notes this hook:
-   "the analyzer would need an in-memory input abstraction".
-   Requirements: see [ROADMAP.md](ROADMAP.md) and the Phase 7 prompt.
-2. After that: Phase 8 (hardening/release), 9 (richer metadata), 10
-   (OpenAPI).
+1. **Phase 8 — Production hardening, CLI UX & release readiness**. No new
+   features: exit-code contract, configuration validation, filesystem
+   security audit, watch/Git hardening, benchmarks (none exist yet),
+   cross-platform review, dependency audit, release checklist. See
+   [ROADMAP.md](ROADMAP.md) and the Phase 8 prompt.
 
 ## Decisions an agent must not silently reverse
 

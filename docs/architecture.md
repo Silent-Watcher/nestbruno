@@ -26,6 +26,7 @@ components are marked *planned* and are not implemented.
 | `sync/apply.rs`, `sync/mod.rs` | Execute a plan through verified writes; `SyncResult` (terminal independent); `synchronize()`. |
 | `workspace.rs` | Incremental state for long-running modes: per-file analysis, per-controller generation cache, in-memory index of the collection; `refresh(dirty paths)` and `resync()`. |
 | `watch/events.rs`, `watch/mod.rs` | Event normalization and debounce (pure); the watch loop, per-directory watches, shutdown. |
+| `staged.rs` | The Git boundary for `sync --staged`: index snapshot, staged-change gate, staged content of every relevant file as in-memory sources. The only module that touches libgit2. |
 | `bruno/writer.rs` | The only code that writes: containment, symlink refusal, overwrite policy, atomic files. |
 | `diag.rs` | `Diagnostic`, `Severity`, and the stderr `Reporter`. |
 | `error.rs` | The fatal `Error` enum and exit-code mapping. |
@@ -142,6 +143,22 @@ recomputation from disk. A property test asserts that any history of source
 changes yields the same collection as a fresh `sync` of the final state.
 Details, measurements and limits: [phases/phase-06.md](phases/phase-06.md).
 
+## Staged synchronization
+
+```text
+git index (+ HEAD) ─▶ staged.rs: staged-change gate ─▶ staged content of every
+                     (unrelated files filtered by       relevant index entry
+                      the discovery Matcher)                │
+                                                            ▼
+              analyze_sources (in-memory, same worker) ─▶ generate ─▶ synchronize
+```
+
+The index is the source of truth: staged content is parsed, never the
+working-tree version, and the desired state is reconstructed from the whole
+index (not patched onto a working-tree analysis). With no relevant staged
+change the command is a clean no-op. Rules, security and limits:
+[phases/phase-07.md](phases/phase-07.md).
+
 ## Planned components (not implemented)
 
-Git staged synchronization (`sync --staged`). See [roadmap.md](roadmap.md).
+None. See [roadmap.md](roadmap.md) for what comes after Phase 7.

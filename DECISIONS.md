@@ -24,11 +24,11 @@ requires a concrete reason recorded next to the phase doc.
 | 16 | `sync` re-reads all `.bru` per run; watch keeps an in-memory index (no persistent cache anywhere) | phase-05/06 | simplicity; persistent caching deliberately deferred |
 | 17 | Exit codes 0/1/2/3/4; "incomplete" (4) is an `Outcome`, not an `Error` | phase-01, `error.rs` | recoverable per-path problems are not fatal |
 | 18 | Watch e2e tests are Unix-only, wait on output lines instead of sleeps | phase-06 | determinism without timing flakiness |
+| 19 | Git access via `git2` 0.21 (libgit2, linked), never shelling out | phase-07, `staged.rs` | index/HEAD/blob + rename detection; no external `git`, no hooks, no subprocess |
+| 20 | `sync --staged` desired state is always the full index (gate on staged changes, but no incremental patching) | phase-07 | staged sync ≡ fresh sync of the staged state, tested byte-for-byte; avoids route models matching neither state |
 
 ## Deliberately *not* decided / open
 
-- **License**: none chosen (owner decision; blocks publication — Phase 8).
 - **Benchmark suite**: none; first one planned for Phase 8.
-- **Git access for Phase 7**: prompt prefers a mature Rust library over
-  shelling out; exact crate choice happens in Phase 7 and must be recorded
-  here and in phase-07.md.
+- License: MIT (chosen by the owner 2026-11-06; `LICENSE` +
+  `license = "MIT"`).

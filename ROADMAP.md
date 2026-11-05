@@ -1,43 +1,17 @@
-# ROADMAP.md — remaining phases (7–10)
+# ROADMAP.md — remaining phases (8–10)
 
 Based on the authoritative phase prompts (kept outside the repo) and the
-actual state in [PROGRESS.md](PROGRESS.md). Phases 1–6 are complete; nothing
+actual state in [PROGRESS.md](PROGRESS.md). Phases 1–7 are complete; nothing
 below is implemented. Each phase starts only on explicit instruction, ends
 with focused commit(s), and must pass fmt/clippy/test gates.
 
-## Phase 7 — Git staged files & selective synchronization (`sync --staged`)
+## Phase 7 — Git staged files & selective synchronization — DONE (2026-11-06)
 
-**Objective:** operate on files relevant to the Git *index* (staged state),
-not the working tree.
-
-Key requirements from the prompt:
-- Git repository detection + root resolution; structured error when absent.
-- Analyze the **index** state: staged content, never the working-tree
-  version. Deleted/renamed staged files handled; rename support only when
-  the API is reliable, otherwise remove+create.
-- **`SourceInput` abstraction** (filesystem | in-memory content) so the
-  existing oxc parser consumes staged content without knowing about Git;
-  no second parser, no duplicated sync logic — converge into the existing
-  pipeline early.
-- Correctness invariant: staged sync ≡ clean analysis of the staged project
-  state; fall back to full staged analysis when incremental correctness
-  can't be guaranteed (uncertain renames, config changes, unsupported
-  change types).
-- Reuse Phase 5 ownership/conflict rules unchanged; never modify the Git
-  index/HEAD/branches; dry-run support; unrelated staged files ignored
-  silently-ish; empty relevant staged state is a clean no-op message.
-- Git access: prefer a mature Rust library (e.g. `git2`) over shelling out;
-  document the choice; one explicit Git-path↔OS-path normalization layer;
-  treat repo paths as untrusted (traversal, symlinks, Unicode, duplicates).
-- Tests: unit (status classification, path normalization, filtering) +
-  integration in temporary Git repos (staged add/modify/delete/rename,
-  unstaged-ignored, idempotence, dry-run writes nothing, conflict
-  preservation, staged-vs-clean equivalence). Isolate from the user's real
-  repo.
-
-Likely touch points: new `src/git/` (or `src/staged/`), `src/nest/mod.rs`
-(input abstraction), `src/commands.rs` + `src/cli.rs` (`sync --staged`),
-`src/error.rs` (Git-specific error variants), docs/phases/phase-07.md.
+`sync --staged [--dry-run]` shipped as designed: index as source of truth,
+staged-content analysis via libgit2, staged changes as the gate with a
+full-index desired state, unborn-HEAD support, rename handling through the
+Phase 5 fingerprints, structured Git errors, path normalization, clean
+no-op, equivalence invariant tested. Record: `docs/phases/phase-07.md`.
 
 ## Phase 8 — Production hardening, CLI UX & release readiness
 
