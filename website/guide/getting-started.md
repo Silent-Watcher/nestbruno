@@ -7,8 +7,17 @@
 
 ## Installation
 
+Install the published crate from [crates.io](https://crates.io/crates/nestbruno):
+
 ```sh
-cargo install --path .
+cargo install nestbruno
+```
+
+Or build from source (requires Rust 1.91+):
+
+```sh
+git clone https://github.com/Silent-Watcher/nestbruno
+cargo install --path nestbruno
 ```
 
 ## First collection in three steps

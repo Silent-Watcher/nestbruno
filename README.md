@@ -13,8 +13,11 @@ without running your application.
 ## Installation
 
 ```sh
-cargo install --path .
+cargo install nestbruno
 ```
+
+Or from source: `cargo install --path .` (see
+[github.com/Silent-Watcher/nestbruno](https://github.com/Silent-Watcher/nestbruno)).
 
 ## Basic usage
 

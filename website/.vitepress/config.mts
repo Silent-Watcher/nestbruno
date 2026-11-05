@@ -50,6 +50,16 @@ export default defineConfig({
       ]
     },
 
+    socialLinks: [
+      { icon: 'github', link: 'https://github.com/Silent-Watcher/nestbruno' }
+    ],
+
+    footer: {
+      message: 'Released under the MIT License.',
+      copyright:
+        'Copyright © 2026 <a href="https://github.com/Silent-Watcher/nestbruno">NestBruno Dev</a>'
+    },
+
     search: {
       provider: 'local',
       options: {

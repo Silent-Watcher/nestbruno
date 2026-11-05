@@ -6,6 +6,7 @@ rust-version = "1.91"
 description = "Incrementally synchronizes NestJS controllers into a Bruno API collection"
 readme = "README.md"
 license = "MIT"
+repository = "https://github.com/Silent-Watcher/nestbruno"
 publish = true
 
 [lib]
