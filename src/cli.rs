@@ -68,7 +68,7 @@ pub enum Command {
         #[arg(
             long,
             value_name = "MS",
-            default_value_t = 200,
+            default_value_t = crate::watch::WatchOptions::DEFAULT_DEBOUNCE_MS,
             value_parser = clap::value_parser!(u64).range(10..=60_000)
         )]
         debounce: u64,
