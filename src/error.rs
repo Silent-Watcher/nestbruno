@@ -83,6 +83,18 @@ pub enum Error {
 
     #[error("{} already exists: refusing to overwrite it", path.display())]
     AlreadyExists { path: PathBuf },
+
+    #[error(
+        "no git repository found at or above {}: staged synchronization analyzes the git index; run inside a repository or pass --project <DIR>",
+        start.display()
+    )]
+    GitNotARepository { start: PathBuf },
+
+    #[error(
+        "cannot read the git repository at {}: {message}",
+        repo.display()
+    )]
+    GitRepository { repo: PathBuf, message: String },
 }
 
 impl Error {
@@ -100,7 +112,9 @@ impl Error {
             | Self::AnalysisThread(_)
             | Self::UnsafeOutput { .. }
             | Self::Watch(_)
-            | Self::AlreadyExists { .. } => exit_code::FAILURE,
+            | Self::AlreadyExists { .. }
+            | Self::GitNotARepository { .. }
+            | Self::GitRepository { .. } => exit_code::FAILURE,
         }
     }
 }

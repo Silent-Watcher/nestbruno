@@ -36,7 +36,10 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
         Command::Discover => discover(cli, out, reporter),
         Command::Routes => routes(cli, out, reporter),
         Command::Generate { force } => generate_command(cli, *force, out, reporter),
-        Command::Sync { dry_run } => sync_command(cli, *dry_run, out, reporter),
+        Command::Sync {
+            dry_run,
+            staged: staged_only,
+        } => sync_command(cli, *dry_run, *staged_only, out, reporter),
         Command::Watch { debounce } => watch_command(cli, *debounce, out, reporter),
     }
 }
@@ -269,18 +272,57 @@ fn generate_command(
 }
 
 /// discover ─▶ analyze ─▶ generate (pure) ─▶ reconcile ─▶ apply (unless dry run).
+///
+/// With `staged_only`, the state comes from the git index instead of the
+/// working tree: the desired routes are reconstructed from the staged content
+/// of every relevant file, and the run is a no-op unless the staging area
+/// itself touches a relevant source file.
 fn sync_command(
     cli: &Cli,
     dry_run: bool,
+    staged_only: bool,
     out: &mut dyn Write,
     reporter: &Reporter,
 ) -> Result<Outcome, Error> {
     let project = open_project(cli, reporter)?;
-    let discovery = discover_controllers(&project)?;
-    let analysis = analyze_files(&project, &discovery.files)?;
-    let generation = generate(project.config(), &analysis.controllers);
 
-    let source_complete = !discovery.is_incomplete() && !analysis.is_incomplete();
+    let (controllers, extra_diagnostics, source_complete) = if staged_only {
+        let matcher = crate::discovery::Matcher::new(project.config())?;
+        let staged = crate::staged::staged_sources(&project, &matcher)?;
+        if staged.is_empty() {
+            writeln!(out, "No relevant staged NestJS changes detected.").map_err(Error::Output)?;
+            return Ok(Outcome::Success);
+        }
+        writeln!(out, "Staged: {} relevant change(s):", staged.changes.len())
+            .map_err(Error::Output)?;
+        for change in &staged.changes {
+            writeln!(
+                out,
+                "  {} {}",
+                change.status.as_str(),
+                change.path.display()
+            )
+            .map_err(Error::Output)?;
+        }
+        let mut complete = !staged
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == crate::diag::Severity::Error);
+        let analysis = crate::nest::analyze_sources(&staged.sources)?;
+        complete &= !analysis.is_incomplete();
+        let mut diagnostics = staged.diagnostics;
+        diagnostics.extend(analysis.diagnostics);
+        (analysis.controllers, diagnostics, complete)
+    } else {
+        let discovery = discover_controllers(&project)?;
+        let analysis = analyze_files(&project, &discovery.files)?;
+        let complete = !discovery.is_incomplete() && !analysis.is_incomplete();
+        let mut diagnostics = discovery.diagnostics;
+        diagnostics.extend(analysis.diagnostics);
+        (analysis.controllers, diagnostics, complete)
+    };
+
+    let generation = generate(project.config(), &controllers);
     let desired = Desired {
         requests: &generation.requests,
         skipped: &generation.skipped,
@@ -288,10 +330,8 @@ fn sync_command(
     };
     let result = synchronize(project.root(), &project.config().bruno, &desired, dry_run)?;
 
-    let diagnostics = discovery
-        .diagnostics
+    let diagnostics = extra_diagnostics
         .iter()
-        .chain(&analysis.diagnostics)
         .chain(&generation.diagnostics)
         .chain(&result.diagnostics);
     for diagnostic in diagnostics {

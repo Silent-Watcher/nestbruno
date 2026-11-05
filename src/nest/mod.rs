@@ -58,6 +58,23 @@ pub fn analyze_files(project: &Project, files: &[ControllerFile]) -> Result<Anal
     Ok(analysis)
 }
 
+/// Analyze in-memory sources instead of files.
+///
+/// The source of the content is irrelevant to the analysis: staged git
+/// synchronization provides the staged blob of every relevant file this way,
+/// and future inputs would plug in the same place. Paths are project-relative
+/// and become the [`crate::route::SourceLocation`] file of every extracted
+/// route, exactly as with [`analyze_files`]. The content must already be
+/// UTF-8 and within [`MAX_SOURCE_BYTES`]; the staged loader enforces this.
+pub fn analyze_sources(sources: &[(PathBuf, String)]) -> Result<Analysis, Error> {
+    let mut analysis = Analysis::default();
+    for (_, mut result) in analyze_contents(sources)? {
+        analysis.controllers.append(&mut result.controllers);
+        analysis.diagnostics.append(&mut result.diagnostics);
+    }
+    Ok(analysis)
+}
+
 /// Like [`analyze_files`], but keeps the result of each file separate (in the
 /// order of `files`). Incremental synchronization needs to know which file
 /// produced which controllers.
@@ -65,14 +82,63 @@ pub fn analyze_each(
     project: &Project,
     files: &[ControllerFile],
 ) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
+    let sources: Vec<(PathBuf, Option<String>)> =
+        files.iter().map(|file| (file.path.clone(), None)).collect();
+    let root = project.root().to_owned();
+    run_analysis(sources, move |relative, content| match content {
+        Some(source) => analyze_content(relative, &source),
+        None => {
+            let source = read_source(&root, relative);
+            match source {
+                Ok(source) => analyze_content(relative, &source),
+                Err(diagnostic) => FileAnalysis {
+                    controllers: Vec::new(),
+                    diagnostics: vec![diagnostic],
+                },
+            }
+        }
+    })
+}
+
+/// Like [`analyze_sources`], but keeps the result of each source separate.
+fn analyze_contents(sources: &[(PathBuf, String)]) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
+    let owned: Vec<(PathBuf, Option<String>)> = sources
+        .iter()
+        .map(|(path, content)| (path.clone(), Some(content.clone())))
+        .collect();
+    run_analysis(owned, |relative, content| {
+        // The loader guarantees `Some` for in-memory sources.
+        match content {
+            Some(source) => analyze_content(relative, &source),
+            None => FileAnalysis {
+                controllers: Vec::new(),
+                diagnostics: vec![Diagnostic::new(
+                    Severity::Error,
+                    Some(relative.to_owned()),
+                    "internal error: staged content missing; please report a bug".to_owned(),
+                )],
+            },
+        }
+    })
+}
+
+/// Run `analyze` for every (path, optional content) on the dedicated worker
+/// thread with the parser-sized stack.
+fn run_analysis(
+    inputs: Vec<(PathBuf, Option<String>)>,
+    analyze: impl Fn(&Path, Option<String>) -> FileAnalysis + Send + Sync,
+) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
     thread::scope(|scope| {
         let worker = thread::Builder::new()
             .name("nestbruno-analyze".to_owned())
             .stack_size(PARSER_STACK_BYTES)
             .spawn_scoped(scope, || {
-                files
+                inputs
                     .iter()
-                    .map(|file| (file.path.clone(), analyze_one(project.root(), &file.path)))
+                    .map(|(path, content)| {
+                        let result = analyze(path, content.clone());
+                        (path.clone(), result)
+                    })
                     .collect()
             })
             .map_err(Error::AnalysisThread)?;
@@ -84,21 +150,11 @@ pub fn analyze_each(
     })
 }
 
-/// Read and analyze one file. Problems become diagnostics of that file.
-fn analyze_one(root: &Path, relative: &Path) -> FileAnalysis {
-    let source = match read_source(root, relative) {
-        Ok(source) => source,
-        Err(diagnostic) => {
-            return FileAnalysis {
-                controllers: Vec::new(),
-                diagnostics: vec![diagnostic],
-            };
-        }
-    };
-
+/// Analyze content that was already read (from disk or elsewhere).
+fn analyze_content(relative: &Path, source: &str) -> FileAnalysis {
     // Defence in depth: the parser is third-party code fed untrusted input. A
     // panic in it must cost one file, not the whole run.
-    match guarded(|| extract_controllers(relative, &source)) {
+    match guarded(|| extract_controllers(relative, source)) {
         Ok(mut result) => {
             if result.controllers.is_empty() && result.diagnostics.is_empty() {
                 result.diagnostics.push(Diagnostic::new(

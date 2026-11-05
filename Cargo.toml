@@ -53,8 +53,16 @@ notify = "8"
 # mode. std has no signal handling; the crate is tiny (one extra dependency,
 # nix) and only runs a handler thread.
 ctrlc = { version = "3", features = ["termination"] }
+# Git index access for `sync --staged`. Reads the index and HEAD tree through
+# libgit2 (linked in; hooks are never run and no `git` process is spawned).
+# std has none of this, and shelling out to `git` would couple the tool to an
+# external executable and its configuration. Mature and maintained under the
+# rust-lang organization. The same crate builds the temporary-repository test
+# fixtures (dev-dependencies below repeat it for the integration tests).
+git2 = "0.21.0"
 
 [dev-dependencies]
+git2 = "0.21.0"
 # Property-based tests for path composition and the analyzer's "never panics,
 # always deterministic" invariants, where examples cannot cover the input space.
 proptest = "1"

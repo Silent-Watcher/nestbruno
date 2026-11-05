@@ -54,6 +54,10 @@ pub enum Command {
         /// Show what would change without writing anything.
         #[arg(long)]
         dry_run: bool,
+        /// Synchronize the state represented by the git index (staged files)
+        /// instead of the working tree.
+        #[arg(long)]
+        staged: bool,
     },
     /// Watch the sources and keep the collection synchronized.
     ///
@@ -101,9 +105,29 @@ mod tests {
     #[test]
     fn sync_accepts_dry_run() {
         let cli = Cli::try_parse_from(["nestbruno", "sync", "--dry-run"]).unwrap();
-        assert!(matches!(cli.command, Command::Sync { dry_run: true }));
+        assert!(matches!(
+            cli.command,
+            Command::Sync {
+                dry_run: true,
+                staged: false
+            }
+        ));
         let cli = Cli::try_parse_from(["nestbruno", "sync"]).unwrap();
-        assert!(matches!(cli.command, Command::Sync { dry_run: false }));
+        assert!(matches!(
+            cli.command,
+            Command::Sync {
+                dry_run: false,
+                staged: false
+            }
+        ));
+        let cli = Cli::try_parse_from(["nestbruno", "sync", "--staged", "--dry-run"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync {
+                dry_run: true,
+                staged: true
+            }
+        ));
     }
 
     #[test]
