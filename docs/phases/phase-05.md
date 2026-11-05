@@ -87,7 +87,7 @@ line** removed. It is a claim to be verified, never an authority.
 | generated, unmodified | valid stamp, content hash matches | may be updated / deleted |
 | generated, modified | valid stamp, content hash differs | never updated or deleted; conflict only if the route changed |
 | unknown | no stamp (hand-written requests, `folder.bru`, environments, ...) | preserved |
-| invalid | unreadable, binary, not UTF-8, > 4 MiB | preserved + diagnostic |
+| invalid | unreadable, binary, not UTF-8, > 4 MiB | preserved + diagnostic. For classification, unknown files keep their text in memory only up to 64 KiB |
 | invalid metadata | a NestBruno line that cannot be parsed, or two of them | **conflict**; untouched |
 
 "Owned fields": everything the generator writes is tool-owned *as long as the
@@ -152,6 +152,7 @@ UPDATE    bruno/Users/find-all.bru
 DELETE    bruno/Users/old.bru
 CONFLICT  bruno/Users/x.bru: <reason>
           what to do: <suggestion>
+FAILED    bruno/Users/y.bru: <reason>      (only when an operation failed)
 Created:     1
 Updated:     1
 Unchanged:   8

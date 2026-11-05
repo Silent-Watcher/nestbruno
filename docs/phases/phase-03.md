@@ -142,7 +142,7 @@ observation, not a benchmark suite (Phase 10). Parsing is single-threaded.
 - `route.rs`: documented path examples; preservation of Nest syntax;
   method/kind mappings; property tests: normalized, idempotent, splittable,
   segment-preserving.
-- `nest/extract` (52 tests): every controller and method decorator; every
+- `nest/extract` (51 `#[test]` functions plus 3 property suites): every controller and method decorator; every
   parameter form and index rule; formatting equivalence (multiline, trailing
   comma, comments, quotes, template); multiple controllers per file; export
   forms; unsupported/custom/aliased decorators; every dynamic form; multiple

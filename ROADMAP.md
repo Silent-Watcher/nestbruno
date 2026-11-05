@@ -1,36 +1,21 @@
-# ROADMAP.md — remaining phases (8–10)
+# ROADMAP.md — remaining phases (9–10)
 
 Based on the authoritative phase prompts (kept outside the repo) and the
-actual state in [PROGRESS.md](PROGRESS.md). Phases 1–7 are complete; nothing
+actual state in [PROGRESS.md](PROGRESS.md). Phases 1–8 are complete; nothing
 below is implemented. Each phase starts only on explicit instruction, ends
 with focused commit(s), and must pass fmt/clippy/test gates.
 
-## Phase 7 — Git staged files & selective synchronization — DONE (2026-11-06)
+## Phase 7 — Git staged synchronization — DONE (2026-11-06)
 
-`sync --staged [--dry-run]` shipped as designed: index as source of truth,
-staged-content analysis via libgit2, staged changes as the gate with a
-full-index desired state, unborn-HEAD support, rename handling through the
-Phase 5 fingerprints, structured Git errors, path normalization, clean
-no-op, equivalence invariant tested. Record: `docs/phases/phase-07.md`.
+`sync --staged [--dry-run]` shipped as designed. Record:
+`docs/phases/phase-07.md`.
 
-## Phase 8 — Production hardening, CLI UX & release readiness
+## Phase 8 — Production hardening — DONE (2026-11-06)
 
-**Objective:** no new features; make what exists reliable for release.
-- Feature audit of every subsystem; CLI quality/exit-code contract review
-  (currently 0/1/2/3/4); diagnostics that answer what/where/why/what-now.
-- Configuration hardening & precedence; filesystem security audit (paths,
-  symlinks, atomic writes, deletions); watch-mode hardening under realistic
-  editor behavior; Git integration hardening (detached HEAD, empty index,
-  Unicode paths, changes during execution).
-- Performance audit with benchmarks where practical (none exist in-tree —
-  first one lands here); memory review of long watch sessions.
-- Cross-platform review (Windows/macOS untested; watch e2e Unix-only);
-  dependency audit (`cargo tree`); unsafe review (none expected);
-  documentation accuracy pass.
-- Release items: `cargo build --release` validation, Cargo metadata
-  (note: **no LICENSE chosen yet** — owner decision blocking publication),
-  release checklist, installation validation. Version stays 0.1.0 unless a
-  release policy says otherwise.
+Benchmarks (`cargo bench`, `docs/phases/phase-08.md`), lifecycle e2e test,
+audit doc-drift fixed, release checklist (`docs/release.md`), package
+metadata, release build + install smoke. Remaining (tracked): `cargo audit`
+in CI (needs network), Windows/macOS exercised by the authors.
 
 ## Phase 9 — Advanced route semantics & request metadata
 

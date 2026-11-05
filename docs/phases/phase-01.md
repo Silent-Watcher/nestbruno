@@ -19,10 +19,10 @@ See [architecture.md](../architecture.md) for module responsibilities.
 
 - **Library + thin binary.** All logic is in the library for direct testing.
 - **Config:** TOML, all keys optional, `deny_unknown_fields`. Keys: `source`,
-  `bruno`, `include`, `exclude`. `source`/`bruno` are validated as relative
+  `bruno`, `include`, `exclude` (`base_url` arrives with Phase 4). `source`/`bruno` are validated as relative
   paths without `..`. `bruno` cannot be the project root. `include` cannot be
   empty. Glob patterns are compiled in Phase 2.
-- **Root discovery:** `--project DIR` is used verbatim. Otherwise walk up from
+- **Root discovery:** `--project DIR` is used verbatim (and is the target directory of `init`). Otherwise walk up from
   the current directory for `nestbruno.toml`, then for `package.json`.
 - **Errors:** one `thiserror` enum for fatal errors; recoverable per-path
   problems are `Diagnostic`s (three severities).

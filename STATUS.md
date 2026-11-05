@@ -1,24 +1,28 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-06, after Phase 7.*
+*Last updated: 2026-11-06, after Phase 8.*
 
 ## One-paragraph state
 
 NestBruno is a Rust CLI (edition 2024, MSRV 1.91) that statically syncs
-NestJS HTTP routes into a Bruno collection. **Phases 1–7 of 10 are
+NestJS HTTP routes into a Bruno collection. **Phases 1–8 of 10 are
 complete** (foundation, discovery, AST route extraction, Bruno generation,
 reconciliation sync + dry-run, watch mode with incremental sync, staged Git
-synchronization). The codebase is clean: no TODOs, no `unsafe`, no `unwrap`
-outside tests, docs in `docs/` match the implementation closely. A VitePress
-documentation site lives in `website/` (landing page, animated logo, local
-search, guide for Phases 1–7; `npm run build` is green). Next phase is
-**Phase 8: production hardening / release readiness**.
+synchronization, production hardening with benchmarks). The codebase is
+clean: no TODOs, no `unsafe`, no `unwrap` outside tests, docs in `docs/`
+match the implementation. A VitePress documentation site lives in
+`website/` (guide through Phase 8; `npm run build` green). Release
+readiness: gates green, release build + install smoke passed,
+`docs/release.md` is the pre-publish checklist. Next phase is **Phase 9:
+advanced route semantics & request metadata**.
 
 ## Build & test status (verified 2026-11-06, toolchain stable 1.99.0)
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass
-- `cargo test --all-features` — pass, 470 tests (330 lib + 140 integration)
+- `cargo test --all-features` — pass, 471 tests
+- `cargo build --release` + `cargo install --path .` smoke — pass
+- `cargo bench` — reproducible numbers in `docs/phases/phase-08.md`
 - Sandbox note: rustup proxies fail with `unknown proxy name: 'ZCode-…'`;
   prepend `~/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin` to PATH
   (recorded in [AGENTS.md](AGENTS.md)).
@@ -62,11 +66,11 @@ does one linear reconcile pass per batch. Full list:
    the guide through Phase 7. Commands: `npm run dev` / `npm run build` /
    `npm run preview` inside `website/`. Content mirrors `docs/`; keep both
    consistent when behavior changes.
-1. **Phase 8 — Production hardening, CLI UX & release readiness**. No new
-   features: exit-code contract, configuration validation, filesystem
-   security audit, watch/Git hardening, benchmarks (none exist yet),
-   cross-platform review, dependency audit, release checklist. See
-   [ROADMAP.md](ROADMAP.md) and the Phase 8 prompt.
+1. **Phase 9 — Advanced route semantics & request metadata** (richer
+   parameter/type metadata, still static; must not destabilize route
+   identity). See [ROADMAP.md](ROADMAP.md) and the Phase 9 prompt.
+2. Publishing: v0.1.0 is taken on crates.io — bump to 0.1.1 and follow
+   [docs/release.md](docs/release.md).
 
 ## Decisions an agent must not silently reverse
 

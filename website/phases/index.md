@@ -14,7 +14,7 @@ bugs and mutation checks — lives in the repository under `docs/phases/`.
 | 5 | Synchronization | ✅ | `sync`, `sync --dry-run` — ownership stamps, conflicts, safe deletion |
 | 6 | Watch mode | ✅ | `watch` — incremental live sync with debounced events and fallbacks |
 | 7 | Git staged synchronization | ✅ | `sync --staged` — reconcile the state the Git index represents |
-| 8 | Production hardening | planned | benchmarks, cross-platform, release readiness |
+| 8 | Production hardening | ✅ | benchmarks, lifecycle e2e, release checklist, package metadata |
 | 9 | Richer route metadata | planned | richer parameters/types, still static |
 | 10 | OpenAPI interoperability | planned | export/validate from the same route IR |
 

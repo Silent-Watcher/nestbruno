@@ -11,21 +11,17 @@ tooling mismatch, not a runtime bug. Runtime known issues: none known.
   gates green again. Expect more lint drift when toolchains bump — do not
   disable lints, fix the code.
 
-## Documentation drift (fix in the next docs pass)
+## Documentation drift (fixed in the Phase 8 pass, 2026-11-06)
 
-1. `docs/phases/phase-03.md` claims "52 tests" for `nest/extract`;
-   actual count is 51 `#[test]` fns (+3 proptest runners). Off by one.
-2. `docs/phases/phase-01.md` lists config keys without `base_url` (added in
-   Phase 4). It's a historical snapshot; consider a pointer note.
-3. ~~`docs/architecture.md` "Planned components" still lists watch/incremental
-   as planned~~ — fixed 2026-11-06: now lists only Git staged sync.
-4. `docs/phases/phase-05.md` dry-run/sample output omits the `FAILED` line
-   class that `sync` actually reports (`commands.rs`).
-5. Undocumented small behaviors (candidates for the next docs pass):
-   hardcoded collection name `"API"` in `bruno.json` (`bruno/writer.rs`);
-   64 KiB text-keep policy for unknown `.bru` files (`sync/existing.rs`);
-   `init` treats `--project` as the target directory; duplicated debounce
-   default between `cli.rs` and `watch/mod.rs::DEFAULT_DEBOUNCE_MS`.
+1. ~~`docs/phases/phase-03.md` claims "52 tests"~~ — corrected to 51 `#[test]`
+   fns + 3 property suites.
+2. ~~`docs/phases/phase-01.md` omits `base_url`~~ — pointer note added.
+3. ~~`docs/architecture.md` "Planned components" stale~~ — fixed earlier.
+4. ~~`docs/phases/phase-05.md` sample omits the `FAILED` line~~ — added.
+5. ~~Undocumented small behaviors~~ — collection name `"API"`, the 64 KiB
+   text-keep policy, `init`'s `--project` target semantics documented; the
+   duplicated debounce default removed from the code (single
+   `WatchOptions::DEFAULT_DEBOUNCE_MS`).
 
 ## Claims not reproducible from the repository
 

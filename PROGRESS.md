@@ -17,7 +17,9 @@ drift from the newer toolchain (1.99.0) was found and fixed on that date; see
 | 5 | Synchronization / reconciliation | **Completed** |
 | 6 | Watch mode + incremental synchronization | **Completed** |
 | 7 | Git staged synchronization | **Completed** |
-| 8 | Production hardening / release readiness | **Not Started** |
+| 8 | Production hardening / release readiness | **Completed** |
+| 9 | Advanced route semantics & request metadata | **Not Started** |
+| 10 | OpenAPI interoperability | **Not Started** |
 | 9 | Advanced route semantics & request metadata | **Not Started** |
 | 10 | OpenAPI interoperability | **Not Started** |
 
@@ -125,6 +127,21 @@ Phase 6. `docs/roadmap.md` records this mapping.
 - Never mutates Git (no index/HEAD writes, no hooks, no subprocess).
 - Verified: 13 unit + 14 integration tests (470 total); fmt + clippy
   `-D warnings` green. Doc: `docs/phases/phase-07.md`.
+
+## Phase 8 — Production hardening — Completed (2026-11-06)
+
+- Benchmarks: `benches/pipeline.rs` (criterion) — extract ~193 µs / 100
+  controllers, generate ~864 µs / 300 routes, discover ~4.0 ms / 1,000
+  files, sync no-op ~4.6 ms / 750 requests. Numbers in
+  `docs/phases/phase-08.md`.
+- Lifecycle end-to-end test (`tests/lifecycle.rs`): every command in one
+  flow, exit-code contract pinned.
+- Hardening: single debounce constant; audit doc-drift fixed (phase-03
+  count, phase-01 keys, phase-05 sample, "API" collection name, 64 KiB
+  policy, `init --project`); dependency tree reviewed; release checklist
+  (`docs/release.md`); Cargo keywords/categories; release build + install
+  smoke passed.
+- 471 tests, fmt + clippy green. Doc: `docs/phases/phase-08.md`.
 
 ## Known gaps inside completed phases
 

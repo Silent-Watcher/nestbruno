@@ -48,7 +48,8 @@ Facts that shape the implementation:
 
 ```text
 <bruno>/
-  bruno.json            created only if absent; never overwritten, even with --force
+  bruno.json            created only if absent; never overwritten, even with --force;
+                        written with the fixed name "API" and version "1"
   <Controller>/         one folder per controller class
     <handler>.bru       one file per route
 ```
