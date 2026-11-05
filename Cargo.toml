@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 description = "Incrementally synchronizes NestJS controllers into a Bruno API collection"
 readme = "README.md"
-publish = false
+publish = true
 
 [lib]
 name = "nestbruno"
