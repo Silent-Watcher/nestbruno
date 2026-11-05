@@ -129,8 +129,8 @@ impl Config {
             message,
         };
 
-        check_relative("source", &self.source).map_err(&invalid)?;
-        check_relative("bruno", &self.bruno).map_err(&invalid)?;
+        check_relative("source", &self.source).map_err(invalid)?;
+        check_relative("bruno", &self.bruno).map_err(invalid)?;
         // The collection directory is written to in later phases; it must be a
         // real subdirectory, never the project root itself.
         if !self
