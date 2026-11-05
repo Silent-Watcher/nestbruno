@@ -7,6 +7,8 @@ description = "Incrementally synchronizes NestJS controllers into a Bruno API co
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/Silent-Watcher/nestbruno"
+keywords = ["nestjs", "bruno", "api", "sync", "cli"]
+categories = ["development-tools", "command-line-utilities"]
 publish = true
 
 [lib]
@@ -66,6 +68,14 @@ git2 = "0.21.0"
 # Property-based tests for path composition and the analyzer's "never panics,
 # always deterministic" invariants, where examples cannot cover the input space.
 proptest = "1"
+# Statistical benchmarks for the expensive stages (benches/pipeline.rs). The
+# phase documents deliberately report ad-hoc observations as such; this makes
+# them reproducible with `cargo bench`.
+criterion = "0.5"
+
+[[bench]]
+name = "pipeline"
+harness = false
 
 [lints.rust]
 unsafe_code = "forbid"
