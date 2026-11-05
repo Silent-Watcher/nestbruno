@@ -119,3 +119,75 @@ pub fn fixture(rel: &str) -> PathBuf {
 pub fn read_text(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|err| panic!("cannot read {}: {err}", path.display()))
 }
+
+// --- git fixtures -----------------------------------------------------------
+//
+// Every repository is created in a throwaway temp directory through libgit2;
+// no test touches the developer's own git configuration or repositories, and
+// nothing is ever committed outside a temp dir. Staging goes through the git2
+// API (blobs written directly into the index), so a test can stage content
+// that differs from the working tree.
+
+use git2::{IndexEntry, IndexTime, Repository, Signature};
+
+/// Initialize a repository at the project root.
+pub fn init_git(project: &TestProject) -> Repository {
+    Repository::init(project.root()).expect("init repo")
+}
+
+/// Stage `rel` (worktree-relative) with `content` without touching the
+/// working tree.
+pub fn stage_buffer(repo: &Repository, rel: &str, content: &[u8]) {
+    let id = repo.blob(content).expect("write blob");
+    let mut index = repo.index().expect("read index");
+    let entry = IndexEntry {
+        ctime: IndexTime::new(0, 0),
+        mtime: IndexTime::new(0, 0),
+        dev: 0,
+        ino: 0,
+        mode: 0o100_644,
+        uid: 0,
+        gid: 0,
+        file_size: u32::try_from(content.len()).expect("small blob"),
+        id,
+        flags: 0,
+        flags_extended: 0,
+        path: rel.as_bytes().to_vec(),
+    };
+    index.add_frombuffer(&entry, content).expect("stage buffer");
+    index.write().expect("write index");
+}
+
+/// Stage the working-tree version of `rel`.
+pub fn stage_file(repo: &Repository, rel: &str) {
+    let mut index = repo.index().expect("read index");
+    index.add_path(Path::new(rel)).expect("add path");
+    index.write().expect("write index");
+}
+
+/// Remove `rel` from the index (a staged deletion).
+pub fn unstage(repo: &Repository, rel: &str) {
+    let mut index = repo.index().expect("read index");
+    index.remove_path(Path::new(rel)).expect("remove path");
+    index.write().expect("write index");
+}
+
+/// Commit the whole index so HEAD exists.
+pub fn commit_all(repo: &Repository, message: &str) {
+    let mut index = repo.index().expect("read index");
+    index.write().expect("write index");
+    let tree_id = index.write_tree().expect("write tree");
+    let tree = repo.find_tree(tree_id).expect("find tree");
+    let signature = Signature::now("test", "test@example.invalid").expect("signature");
+    let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
+    let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
+    repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        message,
+        &tree,
+        &parents,
+    )
+    .expect("commit");
+}
