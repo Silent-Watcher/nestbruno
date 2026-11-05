@@ -1,0 +1,35 @@
+/* NestBruno brand customization on top of the VitePress default theme. */
+
+:root {
+  --vp-c-brand-1: #d97706;
+  --vp-c-brand-2: #f59e0b;
+  --vp-c-brand-3: #fbbf24;
+  --vp-c-brand-soft: rgba(245, 158, 11, 0.14);
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #d97706, #f59e0b 50%, #10b981);
+}
+
+/* Keep the hero on one line on wide screens; VitePress wraps it otherwise. */
+@media (min-width: 960px) {
+  .VPHomeHero .name,
+  .VPHomeHero .text {
+    max-width: 640px;
+  }
+}
+
+/* Custom block for the terminal-style quick start on the landing page. */
+.nb-terminal {
+  background: var(--vp-c-bg-elv);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  padding: 16px 20px;
+  font-size: 0.9em;
+  overflow-x: auto;
+}
+.nb-terminal pre {
+  margin: 0;
+}
+.nb-terminal .nb-prompt {
+  color: var(--vp-c-brand-1);
+  user-select: none;
+}
