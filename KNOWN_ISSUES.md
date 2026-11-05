@@ -42,7 +42,9 @@ assertions, not guarantees, and re-verify before relying on them:
 
 ## Real gaps (accepted, tracked)
 
-- **No `LICENSE`** — blocks any release (Phase 8, owner decision).
+- ~~**No `LICENSE`**~~ — resolved 2026-11-06: MIT chosen by the owner,
+  `LICENSE` added, `license = "MIT"` in Cargo.toml,
+  `cargo publish --dry-run` passes.
 - **No benchmark suite** — planned for Phase 8.
 - **Watch e2e tests Unix-only**; CI matrix (linux/macos/windows) exercised
   on Linux only.

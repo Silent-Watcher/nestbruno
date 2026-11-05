@@ -70,7 +70,6 @@
   discovery; 5,000-controller extraction, 5,000-file generation; 5,000-request sync; see the phase documents). No benchmark suite exists yet (planned with the hardening phase).
 - CI is configured for Linux, macOS and Windows but has only been exercised
   locally on Linux.
-- No `LICENSE` file has been chosen yet (owner decision).
 
 ## Known issues
 
