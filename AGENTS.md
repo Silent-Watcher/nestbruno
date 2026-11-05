@@ -45,7 +45,10 @@ source of truth. If you find they are wrong, fix the file, not just the code.
 - **README.md stays small** (what it is, install, usage, capabilities).
   Everything else goes in `docs/`.
 - **Update context files after meaningful work**: `PROGRESS.md`, `STATUS.md`,
-  and the phase doc in `docs/phases/` for the phase you touched.
+  and the phase doc in `docs/phases/` for the phase you touched. If the
+  change affects user-visible behavior, update the matching page under
+  `website/guide/` (the VitePress site) too; `npm run build` in `website/`
+  must stay green.
 - **Commits**: small, atomic, conventional (`feat:`, `fix:`, `test:`,
   `docs:`, `chore:`). Inspect the full diff before committing; commit only
   intended files; verify `git status` is clean afterwards.

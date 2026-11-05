@@ -1,6 +1,7 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-06, after the Phase 1–6 audit and quality-gate run.*
+*Last updated: 2026-11-06, after the Phase 1–6 audit, quality-gate run and
+the documentation website build.*
 
 ## One-paragraph state
 
@@ -9,8 +10,10 @@ NestJS HTTP routes into a Bruno collection. **Phases 1–6 of 10 are
 complete** (foundation, discovery, AST route extraction, Bruno generation,
 reconciliation sync + dry-run, watch mode with incremental sync). The
 codebase is clean: no TODOs, no `unsafe`, no `unwrap` outside tests, docs in
-`docs/` match the implementation closely. Next phase is **Phase 7: Git
-staged synchronization** (`sync --staged`).
+`docs/` match the implementation closely. A VitePress documentation site
+lives in `website/` (landing page, animated logo, local search, full guide
+for Phases 1–6; `npm run build` is green and was visually verified). Next
+phase is **Phase 7: Git staged synchronization** (`sync --staged`).
 
 ## Build & test status (verified 2026-11-06, toolchain stable 1.99.0)
 
@@ -55,6 +58,11 @@ does one linear reconcile pass per batch. Full list:
 
 ## Next steps
 
+0. **Documentation site** (`website/`, done): VitePress with local search,
+   animated SVG logo (respects `prefers-reduced-motion`), landing page and
+   complete Phases 1–6 guide. Commands: `npm run dev` / `npm run build` /
+   `npm run preview` inside `website/`. Content mirrors `docs/`; keep both
+   consistent when behavior changes.
 1. **Phase 7 — Git staged synchronization** (`sync --staged`). Starting
    point: the analyzer currently reads only filesystem files
    (`nest/mod.rs::analyze_files`); the prompts call for a `SourceInput`

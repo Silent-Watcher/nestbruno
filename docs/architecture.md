@@ -144,6 +144,4 @@ Details, measurements and limits: [phases/phase-06.md](phases/phase-06.md).
 
 ## Planned components (not implemented)
 
-
-incremental synchronization, watch mode, Git integration. See
-[roadmap.md](roadmap.md).
+Git staged synchronization (`sync --staged`). See [roadmap.md](roadmap.md).

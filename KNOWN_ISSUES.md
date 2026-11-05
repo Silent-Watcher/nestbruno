@@ -17,9 +17,8 @@ tooling mismatch, not a runtime bug. Runtime known issues: none known.
    actual count is 51 `#[test]` fns (+3 proptest runners). Off by one.
 2. `docs/phases/phase-01.md` lists config keys without `base_url` (added in
    Phase 4). It's a historical snapshot; consider a pointer note.
-3. `docs/architecture.md` "Planned components (not implemented)" section
-   still names "incremental synchronization, watch mode, Git integration" —
-   the first two are implemented (Phases 5/6); only Git remains planned.
+3. ~~`docs/architecture.md` "Planned components" still lists watch/incremental
+   as planned~~ — fixed 2026-11-06: now lists only Git staged sync.
 4. `docs/phases/phase-05.md` dry-run/sample output omits the `FAILED` line
    class that `sync` actually reports (`commands.rs`).
 5. Undocumented small behaviors (candidates for the next docs pass):

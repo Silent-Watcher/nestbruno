@@ -112,3 +112,12 @@ Phase 6. `docs/roadmap.md` records this mapping.
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing
 summary lives in `docs/project-status.md` ("Current limitations").
+
+## Documentation website (added 2026-11-06, after Phase 6)
+
+`website/` holds a VitePress site documenting everything through Phase 6:
+landing page with an animated SVG logo (`prefers-reduced-motion` respected),
+built-in local search, and 16 pages (9 guide pages, phases overview + 6
+phase pages). Content is condensed from `docs/` and was checked against the
+audit. Verified: `npm run build` green (dead links on), pages visually
+inspected in a browser (home, guide, phase page, search interaction).
