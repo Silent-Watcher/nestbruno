@@ -28,6 +28,20 @@
 //! Everything else (identifiers, calls, concatenation, `as const`,
 //! parentheses, arrays, spreads) is unresolved and produces a warning.
 //!
+//! # Parameter types and same-file DTOs
+//!
+//! A parameter's type annotation is recorded only when it is one plain
+//! identifier (a keyword like `string`, or a class name like `CreateUserDto`).
+//! Arrays, generics, unions, qualified names and intersections are *not*
+//! resolved — never guessed, never evaluated.
+//!
+//! When a `@Body()` parameter's type names a class declared in the **same
+//! file**, its property names (source order, computed names skipped, at most
+//! 64 per class) become the generated body skeleton. Classes in other files
+//! are invisible by construction: discovery only reads files matching
+//! `include`, so a cross-file lookup would need project-wide type resolution,
+//! which is explicitly out of scope.
+//!
 //! # Failure policy
 //!
 //! A file with any syntax error yields **no** controllers and one `error`
@@ -41,15 +55,15 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, CallExpression, Class, ClassElement, Declaration, Decorator,
     ExportDefaultDeclarationKind, Expression, MethodDefinition, MethodDefinitionKind,
-    MethodDefinitionType, ObjectExpression, ObjectPropertyKind, Statement,
+    MethodDefinitionType, ObjectExpression, ObjectPropertyKind, Program, Statement, TSSignature,
 };
 use oxc_parser::Parser;
 use oxc_span::{SourceType, Span};
 
 use crate::diag::{Diagnostic, Severity};
 use crate::route::{
-    Controller, HttpMethod, ParameterKind, ParameterName, Route, RouteParameter, RoutePath,
-    SourceLocation, compose_path,
+    BodyShape, Controller, HttpMethod, ParameterKind, ParameterName, Route, RouteParameter,
+    RoutePath, SourceLocation, compose_path,
 };
 
 /// Everything found in one file.
@@ -95,6 +109,7 @@ pub fn extract_controllers(file: &Path, source: &str) -> FileAnalysis {
         source,
         lines: OnceCell::new(),
         diagnostics: Vec::new(),
+        dtos: dto_properties(&parsed.program),
     };
 
     if parsed.panicked || !parsed.errors.is_empty() {
@@ -132,6 +147,55 @@ pub fn extract_controllers(file: &Path, source: &str) -> FileAnalysis {
         }
     }
     extractor.finish(controllers)
+}
+
+/// Most property definitions a same-file DTO may contribute. A class with
+/// more properties than this contributes its first 64 — the skeleton is a
+/// placeholder, not a schema, and pathological classes must not produce
+/// pathological output.
+const MAX_DTO_PROPERTIES: usize = 64;
+
+/// Collect the property names of every top-level class **and interface**,
+/// keyed by name. Only what the body skeleton needs: names in source order,
+/// computed keys skipped, methods and constructors ignored.
+fn dto_properties(program: &Program<'_>) -> Vec<(String, Vec<String>)> {
+    let mut classes = Vec::new();
+    for statement in &program.body {
+        let (name, properties) = match statement {
+            Statement::ClassDeclaration(class) => {
+                let Some(id) = &class.id else { continue };
+                let mut properties = Vec::new();
+                for element in &class.body.body {
+                    if let ClassElement::PropertyDefinition(property) = element
+                        && let Some(name) = property.key.static_name()
+                    {
+                        properties.push(name.into_owned());
+                        if properties.len() == MAX_DTO_PROPERTIES {
+                            break;
+                        }
+                    }
+                }
+                (id.name.to_string(), properties)
+            }
+            Statement::TSInterfaceDeclaration(interface) => {
+                let mut properties = Vec::new();
+                for signature in &interface.body.body {
+                    if let TSSignature::TSPropertySignature(property) = signature
+                        && let Some(name) = property.key.static_name()
+                    {
+                        properties.push(name.into_owned());
+                        if properties.len() == MAX_DTO_PROPERTIES {
+                            break;
+                        }
+                    }
+                }
+                (interface.id.name.to_string(), properties)
+            }
+            _ => continue,
+        };
+        classes.push((name, properties));
+    }
+    classes
 }
 
 /// Diagnostic for a source above [`MAX_SOURCE_BYTES`].
@@ -174,6 +238,9 @@ struct Extractor<'s> {
     /// Built on first use; most files never need it.
     lines: OnceCell<LineIndex>,
     diagnostics: Vec<Diagnostic>,
+    /// Property names of every top-level class of the file, keyed by class
+    /// name, for same-file body DTO resolution.
+    dtos: Vec<(String, Vec<String>)>,
 }
 
 impl Extractor<'_> {
@@ -312,7 +379,9 @@ impl Extractor<'_> {
         };
 
         let mut parameters = Vec::new();
+        let mut body_param_type: Option<String> = None;
         for (index, parameter) in method.value.params.items.iter().enumerate() {
+            let type_name = extract_type_name(parameter.type_annotation.as_deref());
             for decorator in &parameter.decorators {
                 let Some((name, call)) = decorator_call(decorator) else {
                     continue;
@@ -330,17 +399,81 @@ impl Extractor<'_> {
                         ),
                     );
                 }
-                parameters.push(RouteParameter { kind, name, index });
+                if kind == ParameterKind::Body {
+                    body_param_type = type_name.clone();
+                }
+                parameters.push(RouteParameter {
+                    kind,
+                    name,
+                    index,
+                    type_name: type_name.clone(),
+                });
             }
         }
+
+        let body = self.resolve_body_shape(&parameters, body_param_type);
 
         Some(Route {
             method_name,
             http_method,
             path,
             parameters,
+            body,
             source: self.location(decorator.span),
         })
+    }
+
+    /// Resolve the statically known request-body shape for this route.
+    fn resolve_body_shape(
+        &self,
+        parameters: &[RouteParameter],
+        body_param_type: Option<String>,
+    ) -> BodyShape {
+        let has_body = parameters.iter().any(|p| p.kind == ParameterKind::Body);
+        if !has_body {
+            return BodyShape::None;
+        }
+        let Some(type_name) = body_param_type else {
+            return BodyShape::Unknown;
+        };
+        for (dto_name, properties) in &self.dtos {
+            if dto_name == &type_name && !properties.is_empty() {
+                return BodyShape::Fields(properties.clone());
+            }
+        }
+        BodyShape::Unknown
+    }
+}
+
+/// Extract a simple type name from a TypeScript type annotation.
+///
+/// Returns `Some(name)` only for:
+/// - Keyword types: `string`, `number`, `boolean`
+/// - A single bare identifier reference (e.g., `CreateUserDto`) with no type arguments
+///
+/// Returns `None` for arrays, generics, unions, qualified names,
+/// parenthesized types, etc.
+fn extract_type_name(
+    type_annotation: Option<&oxc_ast::ast::TSTypeAnnotation<'_>>,
+) -> Option<String> {
+    let ts_type = &type_annotation?.type_annotation;
+    match ts_type {
+        oxc_ast::ast::TSType::TSStringKeyword(_) => Some("string".to_owned()),
+        oxc_ast::ast::TSType::TSNumberKeyword(_) => Some("number".to_owned()),
+        oxc_ast::ast::TSType::TSBooleanKeyword(_) => Some("boolean".to_owned()),
+        oxc_ast::ast::TSType::TSTypeReference(type_ref) => {
+            // Only accept a simple identifier with no type arguments
+            if type_ref.type_arguments.is_some() {
+                return None;
+            }
+            match &type_ref.type_name {
+                oxc_ast::ast::TSTypeName::IdentifierReference(ident) => {
+                    Some(ident.name.to_string())
+                }
+                _ => None, // QualifiedName, ThisExpression, etc.
+            }
+        }
+        _ => None, // All other types: arrays, generics, unions, etc.
     }
 }
 

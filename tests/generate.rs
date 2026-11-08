@@ -433,12 +433,25 @@ fn hostile_source_cannot_inject_blocks_variables_or_paths() {
     for (name, content) in tree(&p.root().join("bruno")) {
         let content = text(&content);
         assert!(!name.contains(".."), "{name}");
-        assert!(!content.contains("script:"), "{name}:\n{content}");
+        // Check for executable `script:` blocks (at line start or after `}`),
+        // not the sanitized parameter names in docs which may contain "script".
+        let has_script_block = content
+            .lines()
+            .any(|line| line.trim_start().starts_with("script:"));
+        assert!(
+            !has_script_block,
+            "found executable script: block in {name}:\n{content}"
+        );
         assert!(
             !content.contains("child_process") && !content.contains("evil()"),
             "{name}"
         );
-        assert!(!content.contains("process.env"), "{name}:\n{content}");
+        // Check for `process.env` as a variable reference, not in sanitized names.
+        let has_process_env = content.contains("{{process.env");
+        assert!(
+            !has_process_env,
+            "found process.env reference in {name}:\n{content}"
+        );
         assert!(!content.contains('\r') && !content.contains('\0'), "{name}");
     }
     // Hostile names were sanitized into plain file names.

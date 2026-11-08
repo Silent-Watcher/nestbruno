@@ -206,7 +206,8 @@ mod tests {
 
     use super::*;
     use crate::route::{
-        HttpMethod, ParameterKind, ParameterName, Route, RouteParameter, RoutePath, SourceLocation,
+        BodyShape, HttpMethod, ParameterKind, ParameterName, Route, RouteParameter, RoutePath,
+        SourceLocation,
     };
 
     fn location(file: &str, line: u32) -> SourceLocation {
@@ -223,6 +224,7 @@ mod tests {
             http_method: method,
             path: RoutePath::Static(path.to_owned()),
             parameters: vec![],
+            body: BodyShape::None,
             source: location("src/a.controller.ts", 10),
         }
     }
@@ -479,21 +481,25 @@ mod tests {
                 kind: ParameterKind::Param,
                 name: ParameterName::Named("id".into()),
                 index: 0,
+                type_name: None,
             },
             RouteParameter {
                 kind: ParameterKind::Query,
                 name: ParameterName::Named("notify".into()),
                 index: 1,
+                type_name: None,
             },
             RouteParameter {
                 kind: ParameterKind::Body,
                 name: ParameterName::Unnamed,
                 index: 2,
+                type_name: None,
             },
             RouteParameter {
                 kind: ParameterKind::Headers,
                 name: ParameterName::Named("x\ny".into()),
                 index: 3,
+                type_name: None,
             },
         ];
         let g = generate(

@@ -3,6 +3,7 @@ use std::path::Path;
 use proptest::prelude::*;
 
 use super::*;
+use crate::route::BodyShape;
 
 const FILE: &str = "src/users/users.controller.ts";
 
@@ -319,8 +320,18 @@ fn parameters(signature: &str) -> Vec<RouteParameter> {
     clean(&source).remove(0).routes.remove(0).parameters
 }
 
-fn param(kind: ParameterKind, name: ParameterName, index: usize) -> RouteParameter {
-    RouteParameter { kind, name, index }
+fn param_with_type(
+    kind: ParameterKind,
+    name: ParameterName,
+    index: usize,
+    type_name: &str,
+) -> RouteParameter {
+    RouteParameter {
+        kind,
+        name,
+        index,
+        type_name: Some(type_name.to_owned()),
+    }
 }
 
 fn named(name: &str) -> ParameterName {
@@ -332,19 +343,25 @@ fn every_parameter_decorator_form_is_extracted() {
     use ParameterKind::{Body, Headers, Param, Query};
     use ParameterName::Unnamed;
     let cases = [
-        ("@Param() p: P", param(Param, Unnamed, 0)),
-        ("@Param('id') id: string", param(Param, named("id"), 0)),
-        ("@Query() q: Q", param(Query, Unnamed, 0)),
+        ("@Param() p: P", param_with_type(Param, Unnamed, 0, "P")),
+        (
+            "@Param('id') id: string",
+            param_with_type(Param, named("id"), 0, "string"),
+        ),
+        ("@Query() q: Q", param_with_type(Query, Unnamed, 0, "Q")),
         (
             "@Query('page') page: number",
-            param(Query, named("page"), 0),
+            param_with_type(Query, named("page"), 0, "number"),
         ),
-        ("@Body() b: Dto", param(Body, Unnamed, 0)),
-        ("@Body('name') n: string", param(Body, named("name"), 0)),
-        ("@Headers() h: H", param(Headers, Unnamed, 0)),
+        ("@Body() b: Dto", param_with_type(Body, Unnamed, 0, "Dto")),
+        (
+            "@Body('name') n: string",
+            param_with_type(Body, named("name"), 0, "string"),
+        ),
+        ("@Headers() h: H", param_with_type(Headers, Unnamed, 0, "H")),
         (
             "@Headers('authorization') a: string",
-            param(Headers, named("authorization"), 0),
+            param_with_type(Headers, named("authorization"), 0, "string"),
         ),
     ];
     for (signature, expected) in cases {
@@ -361,9 +378,9 @@ fn parameter_indexes_count_undecorated_parameters() {
     assert_eq!(
         p,
         vec![
-            param(Param, named("id"), 0),
-            param(Query, named("include"), 1),
-            param(Body, ParameterName::Unnamed, 3),
+            param_with_type(Param, named("id"), 0, "string"),
+            param_with_type(Query, named("include"), 1, "string"),
+            param_with_type(Body, ParameterName::Unnamed, 3, "Dto"),
         ]
     );
 }
@@ -373,7 +390,15 @@ fn unsupported_parameter_decorators_are_ignored() {
     let p = parameters(
         "@Req() req: Request, @Res() res: Response, @Ip() ip: string, @Param('id') id: string",
     );
-    assert_eq!(p, vec![param(ParameterKind::Param, named("id"), 3)]);
+    assert_eq!(
+        p,
+        vec![param_with_type(
+            ParameterKind::Param,
+            named("id"),
+            3,
+            "string"
+        )]
+    );
 }
 
 #[test]
@@ -385,9 +410,9 @@ fn pipes_and_extra_arguments_do_not_change_the_name() {
     assert_eq!(
         p,
         vec![
-            param(Param, named("id"), 0),
-            param(Query, named("p"), 1),
-            param(Body, ParameterName::Unnamed, 2),
+            param_with_type(Param, named("id"), 0, "number"),
+            param_with_type(Query, named("p"), 1, "number"),
+            param_with_type(Body, ParameterName::Unnamed, 2, "Dto"),
         ]
     );
 }
@@ -406,9 +431,202 @@ fn several_decorators_on_one_parameter_are_all_recorded_in_order() {
     assert_eq!(
         p,
         vec![
-            param(ParameterKind::Query, named("a"), 0),
-            param(ParameterKind::Param, named("b"), 0),
+            param_with_type(ParameterKind::Query, named("a"), 0, "string"),
+            param_with_type(ParameterKind::Param, named("b"), 0, "string"),
         ]
+    );
+}
+
+// ------------------------------------------------------------ parameter types
+
+#[test]
+fn keyword_types_are_extracted() {
+    let cases = [
+        (
+            "@Query('p') p: string",
+            param_with_type(ParameterKind::Query, named("p"), 0, "string"),
+        ),
+        (
+            "@Query('p') p: number",
+            param_with_type(ParameterKind::Query, named("p"), 0, "number"),
+        ),
+        (
+            "@Query('p') p: boolean",
+            param_with_type(ParameterKind::Query, named("p"), 0, "boolean"),
+        ),
+    ];
+    for (signature, expected) in cases {
+        assert_eq!(parameters(signature), vec![expected], "{signature}");
+    }
+}
+
+#[test]
+fn bare_identifier_types_are_extracted() {
+    let p = parameters("@Body() b: CreateUserDto");
+    assert_eq!(p[0].type_name, Some("CreateUserDto".to_owned()));
+}
+
+#[test]
+fn generic_types_are_not_extracted() {
+    let p = parameters("@Query('p') p: Promise<string>");
+    assert_eq!(p[0].type_name, None);
+}
+
+#[test]
+fn array_types_are_not_extracted() {
+    let p = parameters("@Query('p') p: string[]");
+    assert_eq!(p[0].type_name, None);
+}
+
+#[test]
+fn union_types_are_not_extracted() {
+    let p = parameters("@Query('p') p: string | number");
+    assert_eq!(p[0].type_name, None);
+}
+
+#[test]
+fn qualified_names_are_not_extracted() {
+    let p = parameters("@Query('p') p: Namespace.Type");
+    assert_eq!(p[0].type_name, None);
+}
+
+#[test]
+fn parenthesized_types_are_not_extracted() {
+    let p = parameters("@Query('p') p: (string)");
+    assert_eq!(p[0].type_name, None);
+}
+
+#[test]
+fn type_with_type_arguments_is_not_extracted() {
+    let p = parameters("@Query('p') p: Array<string>");
+    assert_eq!(p[0].type_name, None);
+}
+
+// ------------------------------------------------------------ DTO property extraction
+
+#[test]
+fn class_dto_properties_are_extracted_in_source_order() {
+    let source = r#"
+class CreateUserDto {
+  name: string;
+  email: string;
+  age: number;
+}
+@Controller()
+class C { @Post() create(@Body() dto: CreateUserDto) {} }
+"#;
+    let c = clean(source);
+    assert_eq!(
+        c[0].routes[0].body,
+        BodyShape::Fields(vec!["name".into(), "email".into(), "age".into()])
+    );
+}
+
+#[test]
+fn interface_dto_properties_are_extracted() {
+    let source = r#"
+interface UpdateUserDto {
+  name?: string;
+  email?: string;
+}
+@Controller()
+class C { @Patch() update(@Body() dto: UpdateUserDto) {} }
+"#;
+    let c = clean(source);
+    assert_eq!(
+        c[0].routes[0].body,
+        BodyShape::Fields(vec!["name".into(), "email".into()])
+    );
+}
+
+#[test]
+fn computed_property_names_are_skipped() {
+    let source = r#"
+class Dto {
+  [key: string]: string;
+  name: string;
+}
+@Controller()
+class C { @Post() create(@Body() dto: Dto) {} }
+"#;
+    let c = clean(source);
+    assert_eq!(c[0].routes[0].body, BodyShape::Fields(vec!["name".into()]));
+}
+
+#[test]
+fn methods_and_constructors_are_ignored() {
+    let source = r#"
+class Dto {
+  name: string;
+  constructor() {}
+  method() {}
+  get prop() { return 1; }
+}
+@Controller()
+class C { @Post() create(@Body() dto: Dto) {} }
+"#;
+    let c = clean(source);
+    assert_eq!(c[0].routes[0].body, BodyShape::Fields(vec!["name".into()]));
+}
+
+#[test]
+fn dto_property_limit_is_enforced() {
+    let mut props = String::new();
+    for i in 0..70 {
+        props.push_str(&format!("  prop{}: string;\n", i));
+    }
+    let source = format!(
+        "@Controller() class C {{ @Post() create(@Body() dto: Dto) {{}} }}\nclass Dto {{\n{props}}}"
+    );
+    let c = clean(&source);
+    let fields = match &c[0].routes[0].body {
+        BodyShape::Fields(f) => f,
+        _ => panic!("expected Fields"),
+    };
+    assert_eq!(fields.len(), 64);
+}
+
+#[test]
+fn unknown_dto_type_means_unknown_body_shape() {
+    let source = r#"
+@Controller()
+class C { @Post() create(@Body() dto: UnknownDto) {} }
+"#;
+    let c = clean(source);
+    assert_eq!(c[0].routes[0].body, BodyShape::Unknown);
+}
+
+#[test]
+fn no_body_parameter_means_none() {
+    let c = clean("@Controller() class C { @Get() findAll() {} }");
+    assert_eq!(c[0].routes[0].body, BodyShape::None);
+}
+
+#[test]
+fn body_without_type_annotation_means_unknown() {
+    let source = r#"
+@Controller()
+class C { @Post() create(@Body() dto) {} }
+"#;
+    let c = clean(source);
+    assert_eq!(c[0].routes[0].body, BodyShape::Unknown);
+}
+
+#[test]
+fn named_body_parameter_combines_with_dto_fields() {
+    let source = r#"
+class CreateUserDto {
+  name: string;
+  email: string;
+}
+@Controller()
+class C { @Post() create(@Body('name') name: string, @Body() dto: CreateUserDto) {} }
+"#;
+    let c = clean(source);
+    // DTO fields + named body param should be combined
+    assert_eq!(
+        c[0].routes[0].body,
+        BodyShape::Fields(vec!["name".into(), "email".into()])
     );
 }
 
@@ -562,7 +780,12 @@ export class UsersController<T = unknown> extends Base<User> implements Marker {
     assert_eq!(routes(&a.controllers), pairs(&[("GET", "/users/:id")]));
     assert_eq!(
         a.controllers[0].routes[0].parameters,
-        vec![param(ParameterKind::Param, named("id"), 0)]
+        vec![param_with_type(
+            ParameterKind::Param,
+            named("id"),
+            0,
+            "string"
+        )]
     );
 }
 

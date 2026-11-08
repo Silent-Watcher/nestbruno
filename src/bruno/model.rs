@@ -22,7 +22,7 @@
 //! decorators, because that is what Bruno itself reads.
 
 use crate::route::{
-    Controller, HttpMethod, ParameterKind, ParameterName, Route, RoutePath, compose_path,
+    BodyShape, Controller, HttpMethod, ParameterKind, ParameterName, Route, RoutePath, compose_path,
 };
 
 /// A request body.
@@ -81,7 +81,6 @@ pub fn build_request(
     let mut query_params = Vec::new();
     let mut headers = Vec::new();
     let mut body_fields = Vec::new();
-    let mut has_body = false;
     let mut docs = vec![
         format!(
             "NestJS: {}.{}",
@@ -99,46 +98,75 @@ pub fn build_request(
 
     for parameter in &route.parameters {
         let label = format!("@{}", parameter.kind.as_str());
+        // Record the statically known type in docs when available.
+        if let Some(type_name) = &parameter.type_name {
+            let name_desc = match &parameter.name {
+                ParameterName::Unnamed => "()".to_owned(),
+                ParameterName::Named(n) => format!("({})", display(n)),
+                ParameterName::Unresolved => "(...)".to_owned(),
+            };
+            docs.push(format!("{label}{name_desc}: type {}", display(type_name)));
+        }
         match (&parameter.kind, &parameter.name) {
             (ParameterKind::Param, _) => {}
             (kind, ParameterName::Unnamed) => {
                 if *kind == ParameterKind::Body {
-                    has_body = true;
+                    // Only say "fields not inferred" when the body shape is
+                    // actually unknown; DTO fields are already in the body.
+                    if matches!(route.body, BodyShape::Unknown) {
+                        docs.push(format!("{label}(): whole object, fields not inferred"));
+                    }
+                } else {
+                    docs.push(format!("{label}(): whole object, fields not inferred"));
                 }
-                docs.push(format!("{label}(): whole object, fields not inferred"));
             }
-            (kind, ParameterName::Unresolved) => {
-                if *kind == ParameterKind::Body {
-                    has_body = true;
-                }
+            (_, ParameterName::Unresolved) => {
                 docs.push(format!(
                     "{label}(...): name could not be determined statically"
                 ));
             }
-            (kind, ParameterName::Named(name)) => {
-                if *kind == ParameterKind::Body {
-                    has_body = true;
-                }
-                match check_key(name) {
-                    Ok(()) => match kind {
-                        ParameterKind::Query => push_unique(&mut query_params, name, false),
-                        ParameterKind::Headers => push_unique(&mut headers, name, true),
-                        ParameterKind::Body => push_unique(&mut body_fields, name, false),
-                        ParameterKind::Param => {}
-                    },
-                    Err(reason) => warnings.push(format!(
-                        "{label} parameter {:?} was left out: {reason}",
-                        display(name)
-                    )),
-                }
-            }
+            (kind, ParameterName::Named(name)) => match check_key(name) {
+                Ok(()) => match kind {
+                    ParameterKind::Query => push_unique(&mut query_params, name, false),
+                    ParameterKind::Headers => push_unique(&mut headers, name, true),
+                    ParameterKind::Body => push_unique(&mut body_fields, name, false),
+                    ParameterKind::Param => {}
+                },
+                Err(reason) => warnings.push(format!(
+                    "{label} parameter {:?} was left out: {reason}",
+                    display(name)
+                )),
+            },
         }
     }
 
-    let body = if has_body {
-        Body::Json(json_skeleton(&body_fields))
+    // Combine statically known body fields: DTO properties from the route IR
+    // plus any named @Body('field') parameters. Named body parameters select a
+    // single field, so they take precedence and are merged with the DTO fields.
+    // If route.body is None but there are @Body parameters (test fixtures, etc.),
+    // fall back to Unknown semantics.
+    let has_body_param = route
+        .parameters
+        .iter()
+        .any(|p| p.kind == ParameterKind::Body);
+    let effective_body = if has_body_param && route.body == BodyShape::None {
+        BodyShape::Unknown
     } else {
-        Body::None
+        route.body.clone()
+    };
+    let body = match &effective_body {
+        BodyShape::None => Body::None,
+        BodyShape::Unknown => {
+            let fields = body_fields;
+            Body::Json(json_skeleton(&fields))
+        }
+        BodyShape::Fields(dto_fields) => {
+            let mut fields = dto_fields.clone();
+            for field in &body_fields {
+                push_unique(&mut fields, field, false);
+            }
+            Body::Json(json_skeleton(&fields))
+        }
     };
 
     Ok(Built {
@@ -309,7 +337,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::route::{RouteParameter, SourceLocation};
+    use crate::route::{BodyShape, RouteParameter, SourceLocation};
 
     fn location(line: u32) -> SourceLocation {
         SourceLocation {
@@ -334,12 +362,32 @@ mod tests {
             http_method: method,
             path: RoutePath::Static(path.into()),
             parameters,
+            body: BodyShape::None,
             source: location(5),
         }
     }
 
     fn param(kind: ParameterKind, name: ParameterName, index: usize) -> RouteParameter {
-        RouteParameter { kind, name, index }
+        RouteParameter {
+            kind,
+            name,
+            index,
+            type_name: None,
+        }
+    }
+
+    fn param_with_type(
+        kind: ParameterKind,
+        name: ParameterName,
+        index: usize,
+        type_name: &str,
+    ) -> RouteParameter {
+        RouteParameter {
+            kind,
+            name,
+            index,
+            type_name: Some(type_name.to_owned()),
+        }
     }
 
     fn named(name: &str) -> ParameterName {
@@ -505,6 +553,101 @@ mod tests {
                 param(BodyParam, named("name"), 2)
             ]),
             "{\n  \"name\": null,\n  \"email\": null\n}"
+        );
+    }
+
+    #[test]
+    fn dto_body_shape_produces_fields() {
+        // A route with no parameters: BodyShape drives the body directly.
+        let no_params = route(HttpMethod::Post, "/users", vec![]);
+
+        // BodyShape::None, no body params -> None
+        let route = Route {
+            body: BodyShape::None,
+            ..no_params.clone()
+        };
+        let built = build_request("{{baseUrl}}", &controller(), &route, 1).unwrap();
+        assert_eq!(built.request.body, Body::None);
+
+        // BodyShape::Unknown, no body params -> {}
+        let route = Route {
+            body: BodyShape::Unknown,
+            ..no_params.clone()
+        };
+        let built = build_request("{{baseUrl}}", &controller(), &route, 1).unwrap();
+        assert_eq!(built.request.body, Body::Json("{}".into()));
+
+        // BodyShape::Fields -> fields in skeleton
+        let route = Route {
+            body: BodyShape::Fields(vec!["name".into(), "email".into()]),
+            ..no_params
+        };
+        let built = build_request("{{baseUrl}}", &controller(), &route, 1).unwrap();
+        assert_eq!(
+            built.request.body,
+            Body::Json("{\n  \"name\": null,\n  \"email\": null\n}".into())
+        );
+    }
+
+    #[test]
+    fn named_body_parameters_are_merged_with_dto_fields() {
+        use ParameterKind::Body as BodyParam;
+        let route = route(
+            HttpMethod::Post,
+            "/users",
+            vec![
+                param_with_type(BodyParam, named("name"), 0, "string"),
+                param(BodyParam, ParameterName::Unnamed, 1),
+            ],
+        );
+        let built = build_request("{{baseUrl}}", &controller(), &route, 1).unwrap();
+        assert_eq!(
+            built.request.body,
+            Body::Json("{\n  \"name\": null\n}".into())
+        );
+    }
+
+    #[test]
+    fn parameter_type_is_recorded_in_docs() {
+        let route = route(
+            HttpMethod::Get,
+            "/users/:id",
+            vec![param_with_type(
+                ParameterKind::Param,
+                named("id"),
+                0,
+                "string",
+            )],
+        );
+        let built = build_request("{{baseUrl}}", &controller(), &route, 1).unwrap();
+        assert!(
+            built
+                .request
+                .docs
+                .iter()
+                .any(|d| d == "@Param(id): type string")
+        );
+    }
+
+    #[test]
+    fn query_parameter_type_is_recorded_in_docs() {
+        let route = route(
+            HttpMethod::Get,
+            "/users",
+            vec![param_with_type(
+                ParameterKind::Query,
+                named("page"),
+                0,
+                "number",
+            )],
+        );
+        let built = build_request("{{baseUrl}}", &controller(), &route, 1).unwrap();
+        assert!(
+            built
+                .request
+                .docs
+                .iter()
+                .any(|d| d == "@Query(page): type number")
         );
     }
 

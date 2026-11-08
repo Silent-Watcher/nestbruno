@@ -18,9 +18,7 @@ drift from the newer toolchain (1.99.0) was found and fixed on that date; see
 | 6 | Watch mode + incremental synchronization | **Completed** |
 | 7 | Git staged synchronization | **Completed** |
 | 8 | Production hardening / release readiness | **Completed** |
-| 9 | Advanced route semantics & request metadata | **Not Started** |
-| 10 | OpenAPI interoperability | **Not Started** |
-| 9 | Advanced route semantics & request metadata | **Not Started** |
+| 9 | Advanced route semantics & request metadata | **Completed** |
 | 10 | OpenAPI interoperability | **Not Started** |
 
 Phase numbering note: the original conceptual plan (in the master prompt)
@@ -142,6 +140,26 @@ Phase 6. `docs/roadmap.md` records this mapping.
   (`docs/release.md`); Cargo keywords/categories; release build + install
   smoke passed.
 - 471 tests, fmt + clippy green. Doc: `docs/phases/phase-08.md`.
+
+## Phase 9 — Advanced route semantics & request metadata — Completed (2026-11-08)
+
+- Extended the route IR (no duplicate models): `RouteParameter.type_name`
+  (keyword or bare identifier only), `BodyShape` enum on `Route.body`
+  (`None`/`Unknown`/`Fields`).
+- Extractor: `extract_type_name()` for simple types; `dto_properties()`
+  collects same-file class/interface property names (max 64, source order,
+  computed keys skipped, methods/constructors ignored).
+- Generator: `Fields` → JSON skeleton with `null` per DTO property; `Unknown`
+  → `{}`; `None` → `body: none`. Named `@Body('field')` parameters merged with
+  DTO fields. Type metadata recorded in `docs` as `@Kind(name): type TypeName`.
+- Identity unchanged (controller+method+path+handler): metadata changes
+  update in place (UPDATE, not DELETE+CREATE), verified by sync integration
+  tests. Backward compatible with phases 4–6 output.
+- Tests: 24 new extractor tests (types × DTO extraction × body shape), 4 new
+  generator tests, 3 new sync integration tests. Golden fixtures regenerated.
+  495 total tests (was 471).
+- Verified: fmt + clippy `-D warnings` + all tests pass. Doc:
+  `docs/phases/phase-09.md`.
 
 ## Known gaps inside completed phases
 

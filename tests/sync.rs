@@ -689,6 +689,89 @@ mod symlinks {
     }
 }
 
+// ------------------------------------------------------------ Phase 9: body shape updates in place
+
+#[test]
+fn adding_a_dto_to_a_body_parameter_updates_in_place() {
+    // Start with @Body() without a DTO -> Unknown -> {}
+    let p = project(
+        "@Controller('users')\nexport class UsersController {\n  @Post() create(@Body() dto) {}\n}",
+    );
+    sync(&p);
+    let created = bru(&p, "Users/create.bru");
+    assert!(created.contains("body:json {\n  {}\n}"));
+    assert!(created.contains("@Body(): whole object, fields not inferred"));
+
+    // Now add a DTO with properties -> Fields -> skeleton with fields
+    p.write_over(
+        "src/users/users.controller.ts",
+        "@Controller('users')\nexport class UsersController {\n  @Post() create(@Body() dto: CreateUserDto) {}\n}\nclass CreateUserDto {\n  name: string;\n  email: string;\n}",
+    );
+    let output = sync(&p);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output).replace('\\', "/");
+    assert!(out.contains("UPDATE    bruno/Users/create.bru"), "{out}");
+
+    let updated = bru(&p, "Users/create.bru");
+    assert!(updated.contains("body:json {\n  {\n    \"name\": null,\n    \"email\": null\n  }\n}"));
+    // The "fields not inferred" note should be gone since we have DTO fields
+    assert!(!updated.contains("@Body(): whole object, fields not inferred"));
+}
+
+#[test]
+fn removing_dto_fields_updates_in_place() {
+    let p = project(
+        "@Controller('users')\nexport class UsersController {\n  @Post() create(@Body() dto: CreateUserDto) {}\n}\nclass CreateUserDto {\n  name: string;\n  email: string;\n  age: number;\n}",
+    );
+    sync(&p);
+    let created = bru(&p, "Users/create.bru");
+    assert!(created.contains("\"name\": null"));
+    assert!(created.contains("\"email\": null"));
+    assert!(created.contains("\"age\": null"));
+
+    // Remove one property
+    p.write_over(
+        "src/users/users.controller.ts",
+        "@Controller('users')\nexport class UsersController {\n  @Post() create(@Body() dto: CreateUserDto) {}\n}\nclass CreateUserDto {\n  name: string;\n  email: string;\n}",
+    );
+    let output = sync(&p);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output).replace('\\', "/");
+    assert!(out.contains("UPDATE    bruno/Users/create.bru"), "{out}");
+
+    let updated = bru(&p, "Users/create.bru");
+    assert!(updated.contains("\"name\": null"));
+    assert!(updated.contains("\"email\": null"));
+    assert!(!updated.contains("\"age\": null"));
+}
+
+#[test]
+fn changing_dto_name_treats_as_unknown_not_delete_create() {
+    // DTO name change should just update the body shape, not delete/recreate
+    let p = project(
+        "@Controller('users')\nexport class UsersController {\n  @Post() create(@Body() dto: OldDto) {}\n}\nclass OldDto {\n  name: string;\n}",
+    );
+    sync(&p);
+    let created = bru(&p, "Users/create.bru");
+    assert!(created.contains("\"name\": null"));
+
+    p.write_over(
+        "src/users/users.controller.ts",
+        "@Controller('users')\nexport class UsersController {\n  @Post() create(@Body() dto: NewDto) {}\n}\nclass NewDto {\n  name: string;\n  email: string;\n}",
+    );
+    let output = sync(&p);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let out = stdout(&output).replace('\\', "/");
+    // Should update in place, not delete+create
+    assert!(out.contains("UPDATE    bruno/Users/create.bru"), "{out}");
+    assert!(!out.contains("DELETE"));
+    assert!(!out.contains("CREATE    bruno/Users/create.bru"));
+
+    let updated = bru(&p, "Users/create.bru");
+    assert!(updated.contains("\"name\": null"));
+    assert!(updated.contains("\"email\": null"));
+}
+
 // ------------------------------------------------------------ scale
 
 #[test]

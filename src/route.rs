@@ -155,6 +155,27 @@ pub struct RouteParameter {
     /// Zero-based position among **all** formal parameters of the method
     /// (undecorated ones count).
     pub index: usize,
+    /// The parameter's type annotation when it is statically safe and simple:
+    /// a keyword (`string`, `number`, `boolean`) or a bare identifier
+    /// (`CreateUserDto`). Arrays, generics, unions, qualified names —
+    /// anything beyond one identifier — are `None`: never guessed, never
+    /// evaluated.
+    pub type_name: Option<String>,
+}
+
+/// The statically known request-body shape of a route.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum BodyShape {
+    /// No `@Body` parameter: the request has no body.
+    #[default]
+    None,
+    /// A body is accepted but its fields could not be determined statically
+    /// (no type annotation, or the type is not a class of the same file).
+    Unknown,
+    /// Property names of a same-file class matched by the body parameter's
+    /// type annotation, in source order. Named `@Body('field')` parameters
+    /// are **not** part of this; the model combines both.
+    Fields(Vec<String>),
 }
 
 /// One HTTP route: a decorated method of a controller. The owning controller
@@ -167,6 +188,8 @@ pub struct Route {
     /// Full path: controller path composed with the route path.
     pub path: RoutePath,
     pub parameters: Vec<RouteParameter>,
+    /// Statically known request-body shape.
+    pub body: BodyShape,
     /// Location of the route decorator (e.g. `@Get`).
     pub source: SourceLocation,
 }

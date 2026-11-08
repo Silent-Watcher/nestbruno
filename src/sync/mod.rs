@@ -279,6 +279,7 @@ mod tests {
             http_method: method,
             path: RoutePath::Static(path.into()),
             parameters: vec![],
+            body: crate::route::BodyShape::None,
             source: SourceLocation {
                 file: Arc::from(Path::new("src/u.ts")),
                 line: 1,
@@ -351,6 +352,7 @@ mod tests {
             kind: ParameterKind::Query,
             name: ParameterName::Named(name.into()),
             index: 0,
+            type_name: None,
         });
         r
     }

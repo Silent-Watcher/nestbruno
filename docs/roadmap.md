@@ -11,7 +11,7 @@ watch mode and incremental synchronization were merged into phase 6).
 | --- | --- | --- |
 | 7 | ~~Git staged files and selective synchronization~~ | **done** — `sync --staged`; see [phases/phase-07.md](phases/phase-07.md) |
 | 8 | Production hardening, CLI UX and release readiness | exit-code contract, configuration validation, benchmarks, cross-platform review, release checklist |
-| 9 | Advanced route semantics and request metadata | richer parameter and type metadata, still static |
+| 9 | Advanced route semantics and request metadata | **done** — parameter types, DTO fields, `BodyShape`, in-place updates; see [phases/phase-09.md](phases/phase-09.md) |
 | 10 | OpenAPI interoperability | export/validate from the route IR |
 
 Candidates raised by measurements but not scheduled: restricting the

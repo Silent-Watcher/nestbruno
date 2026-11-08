@@ -39,6 +39,18 @@
   staged change is a clean no-op; dry run works; the Git index is never
   modified.
 
+- **Phase 8 (production hardening):** benchmarks (`cargo bench`), lifecycle
+  end-to-end test, documentation drift audit, release checklist, release
+  build + install smoke.
+
+- **Phase 9 (advanced route semantics & request metadata):** parameter type
+  annotations (keywords and bare identifiers), same-file DTO property
+  extraction (max 64 properties, source order), `BodyShape` on routes
+  (`None`/`Unknown`/`Fields`), JSON skeleton generation with `null` per DTO
+  field, named `@Body('field')` parameters merged in, type metadata in
+  `docs` block. Metadata changes update requests in place (identity
+  unchanged); backward compatible with earlier output.
+
 ## Commands
 
 | Command | State |
@@ -47,8 +59,8 @@
 | `check` | Works: validates configuration and that the source directory exists. |
 | `discover` | Works: lists candidate controller files, one per line. Diagnostic/inspection command. |
 | `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format, not a stable machine interface). |
-| `generate [--force]` | Works: writes request files; existing differing files are left alone unless `--force`; nothing is ever deleted. |
-| `sync [--dry-run]` | Works: creates, updates in place, deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
+| `generate [--force]` | Works: writes request files with parameter type metadata and DTO body skeletons; existing differing files are left alone unless `--force`; nothing is ever deleted. |
+| `sync [--dry-run]` | Works: creates, updates in place (including DTO/metadata changes), deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
 | `sync --staged [--dry-run]` | Works: the same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git. |
 | `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
 
