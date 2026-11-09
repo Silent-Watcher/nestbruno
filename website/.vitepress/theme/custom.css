@@ -41,6 +41,44 @@
   user-select: none;
 }
 
+/* The default theme reserves a square box (320px, 392px under 960px) for a
+   square hero logo. Our mark is wide and flat, so the fixed box left a
+   large empty band above and below it — especially in the stacked layout.
+   Let the container hug the mark instead. */
+.VPHero .image .image-container,
+.VPHero.has-image .image .image-container {
+  width: auto;
+  height: auto;
+}
+/* The theme also renders a blurred glow copy of the logo behind the mark
+   (positioned for the old square box). It smears over the heading now that
+   the container hugs the mark — and the dark brand look never wanted it. */
+.VPHero .image .image-bg {
+  display: none;
+}
+/* In the stacked layout the theme pulls the square logo box up (-76/-108px)
+   and lets the text overlap its bottom 48px, assuming a square logo with
+   built-in whitespace. Our flat mark fills the box edge-to-edge, so the
+   heading collided with it — restore normal stacked flow. */
+@media (max-width: 959px) {
+  .VPHero .image {
+    margin: 0 0 12px;
+  }
+}
+@media (min-width: 960px) {
+  /* The square design also shifts its content up-left 32px for a glow
+     that we do not show; undo it. */
+  .VPHero .image .image-container {
+    transform: none;
+  }
+}
+@media (max-width: 639px) {
+  /* Keep the mark proportionate on phones. */
+  .nb-logo {
+    max-width: 280px;
+  }
+}
+
 /* Benchmark statistic cards for the landing page performance section. */
 .nb-stats {
   display: grid;

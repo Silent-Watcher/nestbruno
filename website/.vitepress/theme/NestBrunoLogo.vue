@@ -1,9 +1,10 @@
 <script setup>
 /**
  * NestBruno mark: the NestJS logo sending its routes into a Bruno
- * collection. Pure SVG + CSS; no animation dependencies. Motion is a
- * small ambient float and a dashed-line march; amplitudes are kept low
- * so it reads as texture rather than movement.
+ * collection. Pure SVG; the ambient motion (dashed-line march + small
+ * float) is SMIL embedded in the SVG rather than CSS animations, so it
+ * keeps running in webviews that suppress CSS animation durations.
+ * Amplitudes stay low so it reads as texture rather than movement.
  */
 </script>
 
@@ -23,6 +24,16 @@
 
     <!-- NestJS (left) -->
     <g class="nb-controller">
+      <animateTransform
+        attributeName="transform"
+        type="translate"
+        values="0 0; 0 -3; 0 0"
+        keyTimes="0; 0.5; 1"
+        calcMode="spline"
+        keySplines="0.42 0 0.58 1; 0.42 0 0.58 1"
+        dur="3.2s"
+        repeatCount="indefinite"
+      />
       <rect x="8" y="38" width="64" height="64" rx="14" fill="#fffbeb" />
       <!-- Nested SVG centers the official 24×24 Simple Icons path perfectly -->
       <svg x="18" y="48" width="44" height="44" viewBox="0 0 24 24">
@@ -35,13 +46,49 @@
 
     <!-- flowing routes (middle) -->
     <g class="nb-routes">
-      <path class="nb-flow nb-flow-1" d="M78 56 H 158" />
-      <path class="nb-flow nb-flow-2" d="M78 70 H 158" />
-      <path class="nb-flow nb-flow-3" d="M78 84 H 158" />
+      <path class="nb-flow nb-flow-1" d="M78 56 H 158">
+        <animate
+          attributeName="stroke-dashoffset"
+          from="0"
+          to="-22"
+          dur="1.2s"
+          repeatCount="indefinite"
+        />
+      </path>
+      <path class="nb-flow nb-flow-2" d="M78 70 H 158">
+        <animate
+          attributeName="stroke-dashoffset"
+          from="0"
+          to="-22"
+          dur="1.5s"
+          begin="-0.4s"
+          repeatCount="indefinite"
+        />
+      </path>
+      <path class="nb-flow nb-flow-3" d="M78 84 H 158">
+        <animate
+          attributeName="stroke-dashoffset"
+          from="0"
+          to="-22"
+          dur="1.8s"
+          begin="-0.9s"
+          repeatCount="indefinite"
+        />
+      </path>
     </g>
 
     <!-- Bruno folder (right) -->
     <g class="nb-folder">
+      <animateTransform
+        attributeName="transform"
+        type="translate"
+        values="0 -3; 0 0; 0 -3"
+        keyTimes="0; 0.5; 1"
+        calcMode="spline"
+        keySplines="0.42 0 0.58 1; 0.42 0 0.58 1"
+        dur="3.2s"
+        repeatCount="indefinite"
+      />
       <path
         d="M156 44h26l8 10h30a10 10 0 0 1 10 10v32a10 10 0 0 1-10 10h-64a10 10 0 0 1-10-10V54a10 10 0 0 1 10-10Z"
         fill="url(#nb-amber)"
@@ -90,42 +137,5 @@
   stroke-linecap: round;
   fill: none;
   opacity: 0.6;
-}
-
-/* Ambient mark animation. Deliberately not gated behind
-   prefers-reduced-motion: it is a 3 px float and a dashed-line march on a
-   single decorative element. Amplitudes stay small so it reads as texture,
-   not motion. */
-.nb-flow {
-  animation: nb-march 1.2s linear infinite;
-}
-.nb-flow-2 {
-  animation-duration: 1.5s;
-  animation-delay: -0.4s;
-}
-.nb-flow-3 {
-  animation-duration: 1.8s;
-  animation-delay: -0.9s;
-}
-.nb-controller {
-  animation: nb-float 3.2s ease-in-out infinite;
-}
-.nb-folder {
-  animation: nb-float 3.2s ease-in-out infinite reverse;
-}
-
-@keyframes nb-march {
-  to {
-    stroke-dashoffset: -22;
-  }
-}
-@keyframes nb-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-3px);
-  }
 }
 </style>
