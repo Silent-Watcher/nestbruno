@@ -6,6 +6,20 @@ All notable changes to NestBruno are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Watch mode now invalidates controllers on dependency-only changes
+  (Phase 11.1, Milestone 11.1.3): every analysis records which dependency
+  modules each controller's cross-file DTO resolutions touched, and watch
+  keeps that reverse index. Editing, renaming, deleting, or recreating an
+  imported DTO file re-analyzes exactly the controllers that import it —
+  shared DTOs invalidate all their importers in one batch, and a recreated
+  dependency is observed because the edge survives the unreadable period
+  (an import whose specifier leads nowhere keeps the controller's previous
+  edges). Files no analysis recorded as dependencies still trigger nothing;
+  event loss and inconsistencies keep the existing full-resync fallback.
+  Incremental results are pinned byte-equivalent to a fresh sync.
+
 ### Performance
 
 - Cross-file DTO resolution is now run-scoped (Phase 11.1, Milestone 11.1.2):

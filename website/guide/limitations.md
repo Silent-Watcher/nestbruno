@@ -25,9 +25,11 @@ NestBruno reflects what is statically visible in decorators. Not modelled:
   (same-file DTOs must not use `export`; Zod chains are limited to one
   statically provable transformation; `createZodDto` classes must live in
   an imported module).
-- **Watch mode does not invalidate on dependency-only changes** — editing an
-  imported DTO file does not re-analyze controllers that import it until the
-  controller itself changes. Run a plain `sync` to pick up dependency edits.
+- **Watch mode dependency invalidation is index-based** — editing an
+  imported DTO file re-analyzes exactly the controllers whose last analysis
+  recorded an import of it (added 2026-11-10). A file that no analysis ever
+  recorded as a dependency is not watched as one; its importers pick the
+  change up when the controller itself changes (the safe fallback).
 - **`sync --staged` resolves same-file DTOs only** — cross-file imports are
   not resolved from the Git index snapshot (dependency content would mix
   index and working-tree state).

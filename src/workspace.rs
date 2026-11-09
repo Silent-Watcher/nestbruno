@@ -44,8 +44,10 @@ use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
 use crate::discovery::{ControllerFile, Matcher, discover_controllers, discover_in};
 use crate::error::Error;
-use crate::nest::analyze_each;
+use crate::nest::analyze_each_with_context;
+use crate::nest::extract::FileAnalysis;
 use crate::project::Project;
+use crate::resolve::ResolverContext;
 use crate::route::Controller;
 use crate::sync::existing::{self, Existing, ExistingFile, classify};
 use crate::sync::{Action, Desired, Plan, PlanEntry, SyncResult, apply, reconcile};
@@ -98,6 +100,11 @@ pub struct Workspace {
     /// watched, even when it lies inside the source tree (`source = "."`).
     bruno_prefix: PathBuf,
     files: BTreeMap<PathBuf, FileState>,
+    /// Reverse dependency index of the last analyses: controller file -> the
+    /// dependency modules its cross-file DTO resolutions touched. A change to
+    /// a dependency schedules its controllers; controllers whose latest
+    /// analysis failed keep their previous edges.
+    dependencies: BTreeMap<PathBuf, BTreeSet<PathBuf>>,
     /// Errors met while walking the source tree.
     walk_incomplete: bool,
     collection: Existing,
@@ -118,6 +125,7 @@ impl Workspace {
             source_prefix,
             bruno_prefix,
             files: BTreeMap::new(),
+            dependencies: BTreeMap::new(),
             walk_incomplete: false,
             collection: Existing::default(),
             by_path: HashMap::new(),
@@ -148,6 +156,13 @@ impl Workspace {
                 .is_ok_and(|relative| !self.matcher.is_pruned_dir(relative))
     }
 
+    /// Whether `path` (project-relative) is a known dependency of at least one
+    /// analyzed controller: its events must not be dropped by the watch
+    /// pre-filter, because the dependent controllers need re-analysis.
+    pub fn is_dependency(&self, path: &Path) -> bool {
+        self.dependencies.values().any(|deps| deps.contains(path))
+    }
+
     /// The collection directory relative to the *source* directory, if it lies
     /// inside it.
     pub fn collection_inside_source(&self) -> Option<PathBuf> {
@@ -165,7 +180,8 @@ impl Workspace {
         let mut diagnostics = discovery.diagnostics;
 
         self.files.clear();
-        let results = analyze_each(&self.project, &discovery.files)?;
+        self.dependencies.clear();
+        let results = self.analyze_batch(&discovery.files)?;
         let mut affected = HashSet::new();
         for (path, analysis) in results {
             diagnostics.extend(analysis.diagnostics.iter().cloned());
@@ -198,6 +214,9 @@ impl Workspace {
         let mut changed: BTreeSet<PathBuf> = BTreeSet::new();
         let mut diagnostics: Vec<Diagnostic> = Vec::new();
         let mut to_analyze: BTreeSet<PathBuf> = BTreeSet::new();
+        // Paths that could be dependencies (under the source tree, not the
+        // collection): matched against the reverse dependency index below.
+        let mut dependency_candidates: Vec<PathBuf> = Vec::new();
 
         for path in dirty {
             let Ok(relative) = path.strip_prefix(&self.source_prefix) else {
@@ -206,6 +225,7 @@ impl Workspace {
             if path.starts_with(&self.bruno_prefix) {
                 continue; // the collection is output, never input
             }
+            dependency_candidates.push(path.clone());
             match fs::symlink_metadata(self.project.root().join(path)) {
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
                     // A file or a whole directory is gone.
@@ -254,11 +274,29 @@ impl Workspace {
             }
         }
 
+        // Dependency-only changes: a controller-candidate file that did not
+        // change is re-analyzed when an imported DTO module it depends on
+        // changed. Exact matches and paths below a changed directory both
+        // count; unknown files schedule nothing (the safe fallback for an
+        // unknown dependency is the controller's own next change or a resync,
+        // never a guessed deletion).
+        let dependents: BTreeSet<PathBuf> = self
+            .dependencies
+            .iter()
+            .filter(|(_, deps)| {
+                dependency_candidates
+                    .iter()
+                    .any(|path| deps.contains(path) || deps.iter().any(|d| d.starts_with(path)))
+            })
+            .map(|(controller, _)| controller.clone())
+            .collect();
+        to_analyze.extend(dependents);
+
         let list: Vec<ControllerFile> = to_analyze
             .iter()
             .map(|path| ControllerFile { path: path.clone() })
             .collect();
-        for (path, analysis) in analyze_each(&self.project, &list)? {
+        for (path, analysis) in self.analyze_batch(&list)? {
             diagnostics.extend(analysis.diagnostics.iter().cloned());
             let failed = analysis
                 .diagnostics
@@ -306,6 +344,45 @@ impl Workspace {
     }
 
     // ---------------------------------------------------------------- internals
+
+    /// Analyze `list` through one fresh run-scoped resolver context and merge
+    /// the dependency graph it recorded into the persistent index. Merge
+    /// rules, most conservative first:
+    ///
+    /// - a controller whose analysis **failed** keeps its previous edges (its
+    ///   last good routes are still in effect, and a later dependency change
+    ///   should still re-trigger it);
+    /// - a controller whose edge set is **uncertain** (an import specifier led
+    ///   to no readable module — a deleted or renamed dependency) keeps its
+    ///   previous edges, so recreating that dependency is observable;
+    /// - otherwise the new edge set replaces the old one wholesale, dropping
+    ///   edges the controller no longer has.
+    fn analyze_batch(
+        &mut self,
+        list: &[ControllerFile],
+    ) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
+        let mut context = ResolverContext::new(self.project.root());
+        let results = analyze_each_with_context(&self.project, list, &mut context)?;
+        let (edges, uncertain) = context.take_dependency_graph();
+        for (path, analysis) in &results {
+            let failed = analysis
+                .diagnostics
+                .iter()
+                .any(|d| d.severity == Severity::Error);
+            if failed || uncertain.contains(path) {
+                continue;
+            }
+            match edges.get(path) {
+                Some(deps) if !deps.is_empty() => {
+                    self.dependencies.insert(path.clone(), deps.clone());
+                }
+                _ => {
+                    self.dependencies.remove(path);
+                }
+            }
+        }
+        Ok(results)
+    }
 
     /// Plan against the in-memory collection and apply the delta. Retries once
     /// if a file turned out to have changed on disk.
@@ -1182,6 +1259,304 @@ mod tests {
         assert!(!ws.is_watchable_dir(Path::new("src/node_modules")));
         assert!(!ws.is_watchable_dir(Path::new("src/dist/x")));
         assert!(!ws.is_watchable_dir(Path::new("elsewhere")));
+    }
+
+    // ------------------------------------------------------------ dependencies
+
+    const PAGER_DTO: &str = "export class PagerDto {\n  page: number;\n  limit: number;\n}\n";
+
+    fn controller_with_dto(name: &str, import: &str, dto_type: &str) -> String {
+        format!(
+            "import {{ {dto_type} }} from '{import}';\n\
+             @Controller('{name}') export class {Name}Controller {{ @Post() create(@Body() dto: {dto_type}) {{}} }}",
+            Name = name,
+        )
+    }
+
+    /// The inner text of a request's `body:json` block (`{}` when unknown).
+    fn body_json(root: &Path, request: &str) -> String {
+        let text = fs::read_to_string(root.join("bruno").join(request)).unwrap();
+        let start = text.find("body:json {").unwrap() + "body:json {".len();
+        let rest = &text[start..];
+        let end = rest.find("\n}").unwrap();
+        rest[..end].trim().to_owned()
+    }
+
+    #[test]
+    fn a_changed_dependency_reanalyzes_only_its_controllers() {
+        let (dir, project) = project_with(&[
+            (
+                "src/users/users.controller.ts",
+                &controller_with_dto("users", "../shared/pager.dto", "PagerDto"),
+            ),
+            ("src/shared/pager.dto.ts", PAGER_DTO),
+            (
+                "src/other/other.controller.ts",
+                &controller("other", "y", "findOther"),
+            ),
+        ]);
+        let (mut ws, _) = Workspace::start(project).unwrap();
+        assert!(body_json(dir.path(), "users/create.bru").contains("\"page\""));
+        let other_before =
+            fs::read_to_string(dir.path().join("bruno/other/find-other.bru")).unwrap();
+
+        // Only the DTO changes: the controller is re-analyzed anyway.
+        write(
+            dir.path(),
+            "src/shared/pager.dto.ts",
+            "export class PagerDto {\n  page: number;\n  limit: number;\n  search: string;\n}\n",
+        );
+        let delta = ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        assert_eq!(
+            delta.changed_files,
+            [PathBuf::from("src/users/users.controller.ts")],
+            "the dependent controller was scheduled from the reverse index"
+        );
+        assert_eq!(delta.result.updated, [PathBuf::from("users/create.bru")]);
+        assert!(body_json(dir.path(), "users/create.bru").contains("\"search\""));
+
+        // The unrelated controller was not touched.
+        assert!(
+            !delta
+                .changed_files
+                .contains(&PathBuf::from("src/other/other.controller.ts"))
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("bruno/other/find-other.bru")).unwrap(),
+            other_before
+        );
+
+        // And a plain service file still triggers nothing at all.
+        write(
+            dir.path(),
+            "src/shared/pager.service.ts",
+            "export class S {}",
+        );
+        let delta = ws
+            .refresh(&dirty(&["src/shared/pager.service.ts"]))
+            .unwrap();
+        assert!(delta.changed_files.is_empty() && !delta.result.has_changes());
+    }
+
+    #[test]
+    fn a_shared_dependency_invalidates_all_of_its_controllers() {
+        let dto = PAGER_DTO;
+        let (dir, project) = project_with(&[
+            (
+                "src/a/a.controller.ts",
+                &controller_with_dto("a", "../shared/pager.dto", "PagerDto"),
+            ),
+            (
+                "src/b/b.controller.ts",
+                &controller_with_dto("b", "../shared/pager.dto", "PagerDto"),
+            ),
+            ("src/shared/pager.dto.ts", dto),
+        ]);
+        let (mut ws, _) = Workspace::start(project).unwrap();
+        write(
+            dir.path(),
+            "src/shared/pager.dto.ts",
+            "export class PagerDto { q: string; }\n",
+        );
+        let delta = ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        let mut changed = delta.changed_files.clone();
+        changed.sort();
+        assert_eq!(
+            changed,
+            [
+                PathBuf::from("src/a/a.controller.ts"),
+                PathBuf::from("src/b/b.controller.ts")
+            ]
+        );
+        assert_eq!(delta.result.updated.len(), 2);
+    }
+
+    #[test]
+    fn a_deleted_and_recreated_dependency_round_trips() {
+        let (dir, project) = project_with(&[
+            (
+                "src/users/users.controller.ts",
+                &controller_with_dto("users", "../shared/pager.dto", "PagerDto"),
+            ),
+            ("src/shared/pager.dto.ts", PAGER_DTO),
+        ]);
+        let (mut ws, _) = Workspace::start(project).unwrap();
+        assert!(body_json(dir.path(), "users/create.bru").contains("\"page\""));
+
+        // Deleted: the dependent is re-analyzed, the body degrades to the
+        // conservative unknown shape; nothing is deleted.
+        fs::remove_file(dir.path().join("src/shared/pager.dto.ts")).unwrap();
+        let delta = ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        assert_eq!(
+            delta.changed_files,
+            [PathBuf::from("src/users/users.controller.ts")]
+        );
+        assert_eq!(delta.result.updated, [PathBuf::from("users/create.bru")]);
+        assert!(delta.result.deleted.is_empty());
+        assert_eq!(body_json(dir.path(), "users/create.bru"), "{}");
+
+        // Recreated: the edge survives (an import that led nowhere keeps the
+        // previous edges in the merge), so the very next event restores the
+        // fields.
+        write(dir.path(), "src/shared/pager.dto.ts", PAGER_DTO);
+        let delta = ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        assert_eq!(
+            delta.changed_files,
+            [PathBuf::from("src/users/users.controller.ts")]
+        );
+        assert!(body_json(dir.path(), "users/create.bru").contains("\"page\""));
+    }
+
+    #[test]
+    fn a_renamed_dependency_updates_the_dependent_in_place() {
+        let (dir, project) = project_with(&[
+            (
+                "src/users/users.controller.ts",
+                &controller_with_dto("users", "../shared/pager.dto", "PagerDto"),
+            ),
+            ("src/shared/pager.dto.ts", PAGER_DTO),
+        ]);
+        let (mut ws, _) = Workspace::start(project).unwrap();
+        // The rename also updates the import (the usual refactor).
+        fs::rename(
+            dir.path().join("src/shared/pager.dto.ts"),
+            dir.path().join("src/shared/filters.dto.ts"),
+        )
+        .unwrap();
+        write(
+            dir.path(),
+            "src/users/users.controller.ts",
+            &controller_with_dto("users", "../shared/filters.dto", "PagerDto"),
+        );
+        let delta = ws
+            .refresh(&dirty(&[
+                "src/shared/pager.dto.ts",
+                "src/shared/filters.dto.ts",
+                "src/users/users.controller.ts",
+            ]))
+            .unwrap();
+        // A pure rename leaves the request content identical: updated in place
+        // is the same as unchanged — what must not happen is a delete+create.
+        assert!(delta.result.created.is_empty() && delta.result.deleted.is_empty());
+        assert!(body_json(dir.path(), "users/create.bru").contains("\"page\""));
+    }
+
+    #[test]
+    fn a_reexport_change_propagates_to_the_dependent() {
+        let (dir, project) = project_with(&[
+            (
+                "src/users/users.controller.ts",
+                &controller_with_dto("users", "../shared", "PagerDto"),
+            ),
+            (
+                "src/shared/index.ts",
+                "export { PagerDto } from './pager.dto';\n",
+            ),
+            ("src/shared/pager.dto.ts", PAGER_DTO),
+        ]);
+        let (mut ws, _) = Workspace::start(project).unwrap();
+        assert!(body_json(dir.path(), "users/create.bru").contains("\"page\""));
+
+        // The barrel changes which symbol it re-exports: the import dangles,
+        // the dependent is re-analyzed to the conservative shape.
+        write(
+            dir.path(),
+            "src/shared/index.ts",
+            "export { Other } from './other';\n",
+        );
+        let delta = ws.refresh(&dirty(&["src/shared/index.ts"])).unwrap();
+        assert_eq!(
+            delta.changed_files,
+            [PathBuf::from("src/users/users.controller.ts")]
+        );
+        assert!(!body_json(dir.path(), "users/create.bru").contains("\"page\""));
+
+        // Repairing the barrel restores the fields.
+        write(
+            dir.path(),
+            "src/shared/index.ts",
+            "export { PagerDto } from './pager.dto';\n",
+        );
+        ws.refresh(&dirty(&["src/shared/index.ts"])).unwrap();
+        assert!(body_json(dir.path(), "users/create.bru").contains("\"page\""));
+    }
+
+    #[test]
+    fn a_change_in_a_circular_dependency_keeps_the_conservative_shape() {
+        let (dir, project) = project_with(&[
+            (
+                "src/users/users.controller.ts",
+                &controller_with_dto("users", "../shared/a.dto", "Dto"),
+            ),
+            ("src/shared/a.dto.ts", "export { Dto } from './b.dto';\n"),
+            ("src/shared/b.dto.ts", "export { Dto } from './a.dto';\n"),
+        ]);
+        let (mut ws, _) = Workspace::start(project).unwrap();
+        assert_eq!(
+            body_json(dir.path(), "users/create.bru"),
+            "{}",
+            "the cycle stays unresolved"
+        );
+
+        // Editing one file of the cycle re-triggers the dependent; the cycle
+        // is detected again and the result stays conservative.
+        write(
+            dir.path(),
+            "src/shared/b.dto.ts",
+            "import { Dto as Base } from './a.dto';\nexport { Dto } from './a.dto';\n",
+        );
+        let delta = ws.refresh(&dirty(&["src/shared/b.dto.ts"])).unwrap();
+        assert_eq!(
+            delta.changed_files,
+            [PathBuf::from("src/users/users.controller.ts")]
+        );
+        assert!(
+            !delta.result.has_changes(),
+            "still unresolvable, nothing to write"
+        );
+        assert_eq!(body_json(dir.path(), "users/create.bru"), "{}");
+    }
+
+    #[test]
+    fn incremental_dependency_changes_match_a_fresh_sync() {
+        let controller = controller_with_dto("users", "../shared/pager.dto", "PagerDto");
+        let (dir, project) = project_with(&[
+            ("src/users/users.controller.ts", &controller),
+            ("src/shared/pager.dto.ts", PAGER_DTO),
+        ]);
+        let (mut ws, _) = Workspace::start(project).unwrap();
+
+        // A sequence of dependency-only and controller edits.
+        write(
+            dir.path(),
+            "src/shared/pager.dto.ts",
+            "export class PagerDto { q: string; }\n",
+        );
+        ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        write(dir.path(), "src/shared/pager.dto.ts", PAGER_DTO);
+        ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        fs::remove_file(dir.path().join("src/shared/pager.dto.ts")).unwrap();
+        ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        write(
+            dir.path(),
+            "src/users/users.controller.ts",
+            &controller_with_dto("users", "../shared/pager.dto", "PagerDto"),
+        );
+        ws.refresh(&dirty(&["src/users/users.controller.ts"]))
+            .unwrap();
+        write(dir.path(), "src/shared/pager.dto.ts", PAGER_DTO);
+        ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+
+        // Reference: the same final sources through a fresh full sync.
+        let fresh = tempfile::tempdir().unwrap();
+        write(fresh.path(), "src/users/users.controller.ts", &controller);
+        write(fresh.path(), "src/shared/pager.dto.ts", PAGER_DTO);
+        reference_sync(&Project::open(fresh.path()).unwrap());
+
+        assert_eq!(contents(dir.path()), contents(fresh.path()));
+        // And the incremental state is a fixed point.
+        let again = ws.refresh(&dirty(&["src/shared/pager.dto.ts"])).unwrap();
+        assert!(!again.result.has_changes());
     }
 
     // ------------------------------------------------------------ incremental == full

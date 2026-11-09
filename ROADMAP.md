@@ -67,10 +67,12 @@ milestone (owner-authorized master prompt, 2026-11-10):
    completed 2026-11-10: canonical-root containment with symlink/regular-file
    validation (`resolve/containment.rs`), `MAX_IMPORT_EDGES` and
    `MAX_DTO_DECLARATIONS` enforced, checked arithmetic, boundary tests.
-2. 11.1.2 Run-scoped resolver context, module caching, single parsing.
-3. 11.1.3 Dependency-aware Watch Mode (reverse dependency index or safe
-   full-resync fallback; incremental result must equal a fresh sync
-   byte-for-byte).
+2. 11.1.2 Run-scoped resolver context, module caching, single parsing —
+   completed 2026-11-10.
+3. 11.1.3 Dependency-aware Watch Mode — completed 2026-11-10: recorded
+   controller → dependency graph, reverse index in watch, dependent
+   scheduling with conservative merge (failed/uncertain analyses keep their
+   edges), e2e + equivalence coverage.
 4. 11.1.4 Git-index-only source provider; cross-file resolution for
    `sync --staged` (index/worktree divergence must resolve to the index
    version).

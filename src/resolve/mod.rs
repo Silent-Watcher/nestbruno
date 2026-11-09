@@ -12,7 +12,7 @@ pub mod module;
 pub mod tsconfig;
 pub mod zod;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
@@ -63,6 +63,20 @@ pub struct ResolverContext {
     module_cache: HashMap<PathBuf, ModuleAnalysis>,
     /// Project root as given (for specifier resolution and diagnostics).
     project_root: PathBuf,
+    /// Dependency graph of this run: controller file -> the dependency module
+    /// paths its cross-file resolutions touched (including modules that were
+    /// resolved but unreadable, so that recreating them is observable).
+    /// Harvested by watch mode to invalidate dependent controllers.
+    dependency_edges: HashMap<PathBuf, BTreeSet<PathBuf>>,
+    /// Controllers whose dependency set is *incomplete*: an import binding was
+    /// found but its specifier resolved to no readable module (deleted or
+    /// renamed dependency). The watch merge must keep the previous edges for
+    /// these instead of replacing them with the partial set, so that
+    /// recreating the dependency is still observable.
+    edge_uncertain: BTreeSet<PathBuf>,
+    /// The controller file whose resolution is in progress; attribution for
+    /// [`Self::dependency_edges`].
+    current_attribution: Option<PathBuf>,
     /// Import/export edges established by specifier resolution.
     import_edge_count: usize,
     /// Total bytes of resolved dependency sources.
@@ -100,6 +114,9 @@ impl ResolverContext {
             tsconfig,
             module_cache: HashMap::new(),
             project_root: project_root.to_path_buf(),
+            dependency_edges: HashMap::new(),
+            edge_uncertain: BTreeSet::new(),
+            current_attribution: None,
             import_edge_count: 0,
             total_dependency_bytes: 0,
             dependency_file_count: 0,
@@ -111,6 +128,19 @@ impl ResolverContext {
     /// All diagnostics collected so far in this run.
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
+    }
+
+    /// Take the dependency graph recorded so far, leaving the context without
+    /// it: the controller -> dependency-module map, and the set of controllers
+    /// whose map entry is known to be incomplete. Watch mode merges both into
+    /// its persistent reverse index after each analysis run.
+    pub fn take_dependency_graph(
+        &mut self,
+    ) -> (HashMap<PathBuf, BTreeSet<PathBuf>>, BTreeSet<PathBuf>) {
+        (
+            std::mem::take(&mut self.dependency_edges),
+            std::mem::take(&mut self.edge_uncertain),
+        )
     }
 }
 
@@ -168,6 +198,10 @@ impl<'ctx> DtoResolver<'ctx> {
         // First check same-file DTOs (already extracted in extract.rs)
         // The caller should pass same-file DTOs separately; this only does cross-file.
 
+        // Attribute every dependency this resolution touches to `from_file`
+        // (watch mode invalidates it when one of them changes).
+        self.ctx.current_attribution = Some(from_file.to_path_buf());
+
         // Find the import that brings `type_name` into scope
         let Some((imported_name, specifier)) = self.find_import_binding(type_name, from_file)
         else {
@@ -177,6 +211,10 @@ impl<'ctx> DtoResolver<'ctx> {
         // Resolve the module specifier
         let Some(module_path) = self.resolve_imported_module(&imported_name, &specifier, from_file)
         else {
+            // The import binding exists but its specifier led nowhere (deleted,
+            // renamed, excluded, or unreadable dependency): the recorded edge
+            // set for this controller is incomplete.
+            self.ctx.edge_uncertain.insert(from_file.to_path_buf());
             return DtoResolution::Unknown;
         };
 
@@ -243,8 +281,17 @@ impl<'ctx> DtoResolver<'ctx> {
             }
             Err(ModuleResolveError::Io) => None,
         };
-        if resolved.is_some() {
+        if let Some(path) = &resolved {
             self.ctx.import_edge_count = self.ctx.import_edge_count.saturating_add(1);
+            // Record the dependency edge even when the module later turns out
+            // to be unreadable: recreating it must be observable (watch mode).
+            if let Some(who) = &self.ctx.current_attribution {
+                self.ctx
+                    .dependency_edges
+                    .entry(who.clone())
+                    .or_default()
+                    .insert(path.clone());
+            }
         }
         resolved
     }
@@ -463,6 +510,10 @@ impl<'ctx> DtoResolver<'ctx> {
                         reexport_depth + 1,
                     );
                 }
+                // A dangling createZodDto import: the edge set is incomplete.
+                if let Some(who) = &self.ctx.current_attribution {
+                    self.ctx.edge_uncertain.insert(who.clone());
+                }
                 return DtoResolution::Unknown;
             }
             self.resolution_stack.pop();
@@ -512,6 +563,10 @@ impl<'ctx> DtoResolver<'ctx> {
                 let result = self.lookup_export(&exported_name, &target_path, reexport_depth + 1);
                 self.resolution_stack.pop();
                 return result;
+            }
+            // A dangling re-export target: the edge set is incomplete.
+            if let Some(who) = &self.ctx.current_attribution {
+                self.ctx.edge_uncertain.insert(who.clone());
             }
         }
         self.resolution_stack.pop();
@@ -628,6 +683,11 @@ pub fn seed_module_from_program(
     if ctx.module_cache.contains_key(module_path) {
         return;
     }
+    // The controller was analyzed in this run: make sure its edge entry
+    // exists (possibly empty) so a watch harvest replaces any stale edges.
+    ctx.dependency_edges
+        .entry(module_path.to_path_buf())
+        .or_default();
     let analysis = ModuleAnalysis {
         imports_exports: extract_imports_exports(program),
         zod_schemas: analyze_zod_program(program),

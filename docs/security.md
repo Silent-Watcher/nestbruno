@@ -134,9 +134,11 @@ perfect closure would require platform-specific open flags (`O_NOFOLLOW`)
 that are deliberately not used. This is stated as defense in depth, not as
 a guaranteed security boundary.
 
-For Watch Mode, dependency events must invalidate dependants or trigger a
-safe full resync (not yet wired: dependency-only changes are currently
-ignored). For `sync --staged`, dependency contents must come only from the
+For Watch Mode, dependency events now invalidate dependants through the
+recorded reverse dependency index (Milestone 11.1.3); a file no analysis
+recorded as a dependency still triggers nothing, and event loss keeps the
+existing full-resync fallback — events remain hints, the filesystem the
+truth. For `sync --staged`, dependency contents must come only from the
 captured Git index; working-tree fallback is forbidden — until an
 index-only source provider exists, staged analysis intentionally resolves
 same-file DTOs only. See

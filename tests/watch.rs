@@ -266,6 +266,115 @@ fn a_modified_controller_updates_only_its_requests() {
 }
 
 #[test]
+fn an_edited_dto_updates_its_controllers_requests() {
+    let p = project();
+    p.write(
+        "src/shared/pager.dto.ts",
+        "export class PagerDto {\n  page: number;\n}\n",
+    );
+    p.write(
+        "src/users/pager.controller.ts",
+        "import { PagerDto } from '../shared/pager.dto';\n\
+         @Controller('pager') export class PagerController { @Post() create(@Body() dto: PagerDto) {} }",
+    );
+    let mut w = Watching::start(&p);
+    assert!(bruno(&p, "Pager/create.bru").contains("\"page\""));
+    let auth_before = fs::read(p.root().join("bruno/auth/login.bru")).unwrap();
+
+    // Only the DTO changes; the controller file is untouched on disk.
+    p.write(
+        "src/shared/pager.dto.ts",
+        "export class PagerDto {\n  page: number;\n  search: string;\n}\n",
+    );
+    // The dependent controller is reported as the changed file.
+    let counts = w.counts_after("src/users/pager.controller.ts");
+    assert!(
+        counts.contains("Updated: 1") && counts.contains("Deleted: 0"),
+        "{counts}"
+    );
+    assert!(bruno(&p, "Pager/create.bru").contains("search"));
+    assert_eq!(
+        fs::read(p.root().join("bruno/auth/login.bru")).unwrap(),
+        auth_before,
+        "controllers that do not import the DTO are untouched"
+    );
+    w.stop_with("INT");
+}
+
+#[test]
+fn a_dto_shared_by_two_controllers_updates_both() {
+    let p = project();
+    p.write(
+        "src/shared/pager.dto.ts",
+        "export class PagerDto {\n  page: number;\n}\n",
+    );
+    for name in ["one", "two"] {
+        p.write(
+            format!("src/{name}/{name}.controller.ts"),
+            &format!(
+                "import {{ PagerDto }} from '../shared/pager.dto';\n\
+                 @Controller('{name}') export class {Name}Controller {{ @Post() create(@Body() dto: PagerDto) {{}} }}",
+                Name = name
+            ),
+        );
+    }
+    let mut w = Watching::start(&p);
+    assert!(bruno(&p, "one/create.bru").contains("\"page\""));
+    assert!(bruno(&p, "two/create.bru").contains("\"page\""));
+
+    p.write(
+        "src/shared/pager.dto.ts",
+        "export class PagerDto { q: string; }\n",
+    );
+    // One batch reports both dependents; Updated counts both requests.
+    let counts = w.counts_after("src/one/one.controller.ts");
+    assert!(
+        w.seen
+            .iter()
+            .any(|l| l == "Changed: src/two/two.controller.ts"),
+        "the second dependent was invalidated in the same batch: {:?}",
+        w.seen
+    );
+    assert!(counts.contains("Updated: 2"), "{counts}");
+    assert!(bruno(&p, "one/create.bru").contains("\"q\""));
+    assert!(bruno(&p, "two/create.bru").contains("\"q\""));
+    w.stop_with("INT");
+}
+
+#[test]
+fn a_deleted_and_recreated_dto_degrades_and_recovers() {
+    let p = project();
+    p.write(
+        "src/shared/pager.dto.ts",
+        "export class PagerDto {\n  page: number;\n}\n",
+    );
+    p.write(
+        "src/users/pager.controller.ts",
+        "import { PagerDto } from '../shared/pager.dto';\n\
+         @Controller('pager') export class PagerController { @Post() create(@Body() dto: PagerDto) {} }",
+    );
+    let mut w = Watching::start(&p);
+    assert!(bruno(&p, "Pager/create.bru").contains("\"page\""));
+
+    // Deleted: the body degrades to the conservative unknown shape; the
+    // request itself is kept.
+    fs::remove_file(p.root().join("src/shared/pager.dto.ts")).unwrap();
+    let counts = w.counts_after("src/users/pager.controller.ts");
+    assert!(counts.contains("Deleted: 0"), "{counts}");
+    assert!(!bruno(&p, "Pager/create.bru").contains("\"page\""));
+
+    // Recreated: the very next event restores the fields (the dependency edge
+    // survived the unreadable period).
+    p.write(
+        "src/shared/pager.dto.ts",
+        "export class PagerDto {\n  page: number;\n}\n",
+    );
+    w.counts_after("src/users/pager.controller.ts");
+    assert!(bruno(&p, "Pager/create.bru").contains("\"page\""));
+    w.stop_with("INT");
+}
+
+#[test]
 fn a_new_controller_in_a_new_directory_is_picked_up() {
     let p = project();
     let mut w = Watching::start(&p);

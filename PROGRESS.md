@@ -303,6 +303,36 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
   cross-run cache leakage, malformed-then-repaired dependency retry).
   Gates: fmt + clippy `-D warnings` clean; 562 tests pass (was 559).
 
+#### Milestone 11.1.3 — Dependency-aware Watch Mode (completed 2026-11-10)
+
+- **Edge recording** (`src/resolve/mod.rs`): every `resolve_type` attributes
+  the modules its specifier resolutions touch to the controller file
+  (`ResolverContext::dependency_edges`); edges are recorded even when the
+  module later turns out unreadable, so recreating it is observable. A
+  binding whose specifier leads nowhere (deleted/renamed dependency) marks
+  the controller's edge set **uncertain** (`edge_uncertain`).
+- **Harvest & merge** (`src/workspace.rs::analyze_batch`): one fresh
+  `ResolverContext` per batch (`analyze_each_with_context`); the recorded
+  graph merges conservatively — failed analyses and uncertain edge sets
+  keep the previous edges, everything else replaces wholesale (stale edges
+  disappear when a controller stops importing a DTO).
+- **Scheduling** (`Workspace::refresh`): dirty paths under the source tree
+  are matched against the reverse index (exact and below-a-changed-
+  directory); dependents join the analysis set. `is_dependency` lets the
+  watch event pre-filter (`worth_checking`) keep dependency files that are
+  not controller candidates.
+- **Fallbacks preserved**: events remain hints; unknown files schedule
+  nothing; overflow/errors keep the full-resync path (which rebuilds the
+  index); debounce, last-good-state and incomplete-analysis protections
+  untouched.
+- **Tests** (+11): 7 workspace unit tests (dependent-only invalidation with
+  untouched third controller, shared DTO, delete/recreate round trip,
+  rename with import update, barrel re-export change, circular-dependency
+  containment, deterministic incremental ≡ fresh-sync equivalence), 1 event
+  pre-filter test, 3 real-binary e2e tests (DTO edit, shared DTO one-batch
+  invalidation, delete/recreate). Gates: fmt + clippy `-D warnings` clean;
+  573 tests pass (was 562).
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

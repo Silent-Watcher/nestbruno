@@ -414,13 +414,16 @@ fn is_reportable(delta: &Delta) -> bool {
 }
 
 /// Cheap pre-filter for raw event paths (absolute): source files that could be
-/// controllers, and paths that might be directories (no extension). Anything
-/// under the collection directory is ignored, which prevents feedback loops.
+/// controllers, known dependency files of analyzed controllers (a changed DTO
+/// must invalidate its importers), and paths that might be directories (no
+/// extension). Anything under the collection directory is ignored, which
+/// prevents feedback loops.
 fn worth_checking(workspace: &Workspace, project: &Project, path: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(project.root()) else {
         return false;
     };
     workspace.is_relevant(relative)
+        || workspace.is_dependency(relative)
         || (relative.extension().is_none() && workspace.is_watchable_dir(relative))
 }
 
@@ -643,6 +646,40 @@ mod tests {
         for kept in ["src/a/a.controller.ts", "src/new-dir", "src/a/deeper"] {
             assert!(worth_checking(&ws, &project, &root.join(kept)), "{kept}");
         }
+    }
+
+    #[test]
+    fn dependency_files_pass_the_relevance_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src/a")).unwrap();
+        fs::create_dir_all(dir.path().join("src/shared")).unwrap();
+        fs::write(
+            dir.path().join("src/a/a.controller.ts"),
+            "import { Pager } from '../shared/pager.dto';\n\
+             @Controller('a') export class AController { @Post() create(@Body() dto: Pager) {} }",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("src/shared/pager.dto.ts"),
+            "export class Pager { page: number; }",
+        )
+        .unwrap();
+        let project = Project::open(dir.path()).unwrap();
+        let (ws, _) = Workspace::start(project.clone()).unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        // The DTO is not a controller candidate, but it is a known dependency:
+        // its events must reach the workspace.
+        assert!(worth_checking(
+            &ws,
+            &project,
+            &root.join("src/shared/pager.dto.ts")
+        ));
+        // A service that nothing imports is still ignored.
+        assert!(!worth_checking(
+            &ws,
+            &project,
+            &root.join("src/shared/other.service.ts")
+        ));
     }
 
     #[test]

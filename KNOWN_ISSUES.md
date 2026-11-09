@@ -127,10 +127,14 @@ Still open (deferred; the accepted limitations of the shipped feature):
   executed or written based on dependency files. Documented in
   `resolve/containment.rs` and `docs/security.md`; not claimable as a
   closed TOCTOU window.
-- **Watch dependency changes not wired.** `Workspace::refresh()` only
-  schedules Matcher-relevant (controller-candidate) files; editing an
-  imported DTO file does not invalidate dependent Controllers. A reverse
-  dependency index or safe full-resync fallback is required.
+- ~~Watch dependency changes not wired~~ — resolved 2026-11-10
+  (Milestone 11.1.3): analyses record controller → dependency-module edges
+  (`ResolverContext::take_dependency_graph`); watch keeps the reverse index,
+  schedules dependents on dependency-only changes (edit/rename/delete/
+  recreate, shared DTOs, re-export barrels, cycles), and keeps previous
+  edges when an analysis failed or an import specifier led nowhere. Covered
+  by workspace unit tests, dependency e2e tests, and a deterministic
+  incremental ≡ fresh-sync equivalence test.
 - **Staged dependencies not wired.** `sync --staged` analyzes controller
   blobs from the index without project context, so cross-file resolution
   is disabled there (same-file DTOs only). This is the safe behavior until

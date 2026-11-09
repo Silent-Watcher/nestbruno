@@ -102,23 +102,35 @@ pub fn analyze_each(
     project: &Project,
     files: &[ControllerFile],
 ) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
+    // One resolver context per analysis run: every file below shares the
+    // module cache, budgets and diagnostics, so a dependency imported by
+    // several controllers is read and parsed once.
+    let mut resolver_context = ResolverContext::new(project.root());
+    analyze_each_with_context(project, files, &mut resolver_context)
+}
+
+/// Like [`analyze_each`], but the caller supplies the run-scoped resolver
+/// context and keeps it afterwards — watch mode harvests the dependency
+/// graph recorded during the run to know which controllers import which
+/// dependency files.
+pub fn analyze_each_with_context(
+    project: &Project,
+    files: &[ControllerFile],
+    resolver_context: &mut ResolverContext,
+) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
     let sources: Vec<(PathBuf, Option<String>)> =
         files.iter().map(|file| (file.path.clone(), None)).collect();
     let root = project.root();
     let source_prefix = project.config().source.clone();
     let config = project.config();
     let matcher = Matcher::new(config).ok();
-    // One resolver context per analysis run: every file below shares the
-    // module cache, budgets and diagnostics, so a dependency imported by
-    // several controllers is read and parsed once.
-    let mut resolver_context = ResolverContext::new(root);
     run_analysis(sources, move |relative, content| {
         let mut project_context = matcher.as_ref().map(|matcher| ProjectContext {
             root,
             source_prefix: &source_prefix,
             config,
             matcher,
-            resolver: &mut resolver_context,
+            resolver: &mut *resolver_context,
         });
         match content {
             Some(source) => analyze_content(relative, &source, project_context.as_mut()),

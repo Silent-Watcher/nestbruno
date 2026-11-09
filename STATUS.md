@@ -1,6 +1,6 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, during Phase 11.1 (Milestones 11.1.1–11.1.2 completed).*
+*Last updated: 2026-11-10, during Phase 11.1 (Milestones 11.1.1–11.1.3 completed).*
 
 ## One-paragraph state
 
@@ -14,6 +14,10 @@ one `ResolverContext` per analysis run shares the module cache across
 Controllers and routes, every module is parsed once (the extractor seeds the
 cache with the already-parsed controller program), and the Criterion suite
 gained four shared-workload benchmarks (cross-file resolution 40 µs → 30 µs).
+Milestone 11.1.3: watch mode keeps the reverse dependency index recorded by
+each analysis and re-analyzes the dependent controllers on dependency-only
+changes (edit, rename, delete, recreate, shared DTOs, barrels, cycles) with
+the conservative merge policy and the existing full-resync fallback.
 Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 **OpenAPI interoperability** and has not started.
 
@@ -30,7 +34,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 562 tests (539 at Phase 11, +20 from Milestone 11.1.1, +3 from 11.1.2)
+- `cargo test --all-features` — pass, 573 tests (539 at Phase 11; +20, +3, +11 from Milestones 11.1.1–11.1.3)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -71,8 +75,12 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
   diagnostics shared per run), single-parse module analysis (dependency
   parsed once; controller seeded from the extractor's parse), Criterion
   suite +4 shared-workload benchmarks; cross-file resolution 40 µs → 30 µs.
-- Next: 11.1.3 dependency-aware watch mode. See `ROADMAP.md` for the
-  milestone list and `PROGRESS.md` for detail.
+- Milestone 11.1.3 done: watch mode dependency invalidation via the
+  recorded reverse dependency index; dependent controllers re-analyzed on
+  DTO-only changes; conservative merge (failed/uncertain analyses keep
+  their edges); e2e + incremental ≡ fresh-sync equivalence tests.
+- Next: 11.1.4 Git-index source provider and staged cross-file
+  resolution. See `ROADMAP.md` and `PROGRESS.md` for detail.
 
 ## Phase 11 — remaining work (deferred to future phases)
 
