@@ -4,6 +4,20 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-11-10
+
+Phase 13 — query and param DTO resolution through the shared resolver.
+
+### Added
+
+- **Query and param DTO resolution** (Phase 13): unnamed `@Query()` object
+  parameters resolve through the shared cross-file resolver and generate
+  *disabled, empty* query parameters (deduplicated against named
+  `@Query('x')` parameters); unnamed `@Param()` object parameters are
+  matched against the URL-derived path parameters — the URL stays the
+  source of truth, DTO fields absent from the path are documented, and no
+  placeholder is ever invented.
+
 ## [0.4.0] — 2026-11-10
 
 Phase 12 — global prefix and URI versioning, composed statically in the
