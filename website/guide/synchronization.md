@@ -88,6 +88,25 @@ No files were written.
 
 `-v` also lists `PRESERVE` and `UNCHANGED` files.
 
+## Verification
+
+`nestbruno verify` answers a different question than `sync --dry-run`:
+"is the collection in sync?" — and exits non-zero when it is not, which
+makes it the right command for CI and Git hooks.
+
+- It runs the identical pipeline as a dry run (same plan, same ownership
+  rules) and never writes anything — not even on errors or conflicts.
+- The report groups the plan into `missing` / `outdated` / `stale`
+  requests, conflicts, and preserved files, with exit 0 (in sync),
+  1 (out of sync — CI failure) or 4 (conflicts or an incomplete analysis).
+- `verify --staged` verifies against the Git index state, like
+  `sync --staged`.
+- `verify --format json` gives the same information as one JSON document.
+
+Use `--dry-run` when you want to see the plan (it always exits 0); use
+`verify` when a process needs a pass/fail answer. Both are strictly
+read-only.
+
 ## Resolving a conflict
 
 A conflict means: the route changed **and** you edited the request. NestBruno

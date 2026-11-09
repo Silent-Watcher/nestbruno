@@ -80,6 +80,19 @@ pub enum Command {
         #[arg(long, value_enum, default_value = "text")]
         format: OutputFormat,
     },
+    /// Check whether the collection matches the sources, without writing.
+    ///
+    /// Exits 1 when the collection is out of sync (suitable for CI), 4 on
+    /// conflicts or an incomplete analysis. Nothing is ever modified.
+    Verify {
+        /// Compare against the git index (staged files) instead of the
+        /// working tree.
+        #[arg(long)]
+        staged: bool,
+        /// Select the output format.
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+    },
     /// Watch the sources and keep the collection synchronized.
     ///
     /// Only the changed files are re-analyzed. Stops cleanly on Ctrl-C.
@@ -200,6 +213,27 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn verify_accepts_staged_and_format() {
+        let cli = Cli::try_parse_from(["nestbruno", "verify"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Verify {
+                staged: false,
+                format: OutputFormat::Text
+            }
+        ));
+        let cli =
+            Cli::try_parse_from(["nestbruno", "verify", "--staged", "--format", "json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Verify {
+                staged: true,
+                format: OutputFormat::Json
+            }
+        ));
     }
 
     #[test]

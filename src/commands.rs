@@ -24,6 +24,9 @@ use crate::workspace::Delta;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Success,
+    /// Finished with a complete state, but the collection is out of sync
+    /// (`verify`): suitable as a CI failure signal.
+    OutOfSync,
     /// Finished, but some paths could not be processed; the result is
     /// incomplete (maps to a distinct exit code).
     Incomplete,
@@ -42,6 +45,10 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
             staged: staged_only,
             format,
         } => sync_command(cli, *dry_run, *staged_only, *format, out, reporter),
+        Command::Verify {
+            staged: staged_only,
+            format,
+        } => verify_command(cli, *staged_only, *format, out, reporter),
         Command::Watch { debounce } => watch_command(cli, *debounce, out, reporter),
     }
 }
@@ -304,6 +311,87 @@ fn generate_command(
     })
 }
 
+/// The analysis and planning part of synchronization, shared by `sync` and
+/// `verify` (Phase 14.2): analyze the working tree or the git index, generate
+/// the desired requests, reconcile with the collection. With `dry_run` nothing
+/// is ever written.
+struct SyncRun {
+    /// Plan result with **all** diagnostics merged in report order (source
+    /// analysis, generation, synchronization).
+    result: SyncResult,
+    /// Staged changes when the run was staged-only (empty otherwise).
+    staged_changes: Vec<crate::staged::StagedChange>,
+    /// Whether the desired state could be established completely
+    /// (discovery, analysis and generation covered everything).
+    analysis_complete: bool,
+    /// Staged-only with nothing relevant staged: a clean no-op.
+    no_staged_changes: bool,
+}
+
+fn analyze_and_plan(project: &Project, staged_only: bool, dry_run: bool) -> Result<SyncRun, Error> {
+    let (controllers, mut diagnostics, source_complete, staged_changes) = if staged_only {
+        let matcher = crate::discovery::Matcher::new(project.config())?;
+        let staged = crate::staged::staged_sources(project, &matcher)?;
+        if staged.is_empty() {
+            return Ok(SyncRun {
+                result: SyncResult::default(),
+                staged_changes: Vec::new(),
+                analysis_complete: true,
+                no_staged_changes: true,
+            });
+        }
+        let analysis = crate::staged::analyze_staged(project, &staged)?;
+        let source_complete = !staged
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == crate::diag::Severity::Error)
+            && !analysis.is_incomplete();
+        let mut diagnostics = staged.diagnostics;
+        diagnostics.extend(analysis.diagnostics);
+        (
+            analysis.controllers,
+            diagnostics,
+            source_complete,
+            staged.changes,
+        )
+    } else {
+        let discovery = discover_controllers(project)?;
+        let analysis = analyze_files(project, &discovery.files)?;
+        let source_complete = !discovery.is_incomplete() && !analysis.is_incomplete();
+        let mut diagnostics = discovery.diagnostics;
+        diagnostics.extend(analysis.diagnostics);
+        (
+            analysis.controllers,
+            diagnostics,
+            source_complete,
+            Vec::new(),
+        )
+    };
+
+    let generation = generate(project.config(), &controllers);
+    let generation_failed = generation
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == crate::diag::Severity::Error);
+    let desired = Desired {
+        requests: &generation.requests,
+        skipped: &generation.skipped,
+        complete: source_complete,
+    };
+    let mut result = synchronize(project.root(), &project.config().bruno, &desired, dry_run)?;
+    // One merged, deterministically ordered list: source diagnostics, then
+    // generation diagnostics, then the synchronization result's own.
+    diagnostics.extend(generation.diagnostics);
+    diagnostics.append(&mut result.diagnostics);
+    result.diagnostics = diagnostics;
+    Ok(SyncRun {
+        result,
+        staged_changes,
+        analysis_complete: source_complete && !generation_failed,
+        no_staged_changes: false,
+    })
+}
+
 /// discover ─▶ analyze ─▶ generate (pure) ─▶ reconcile ─▶ apply (unless dry run).
 ///
 /// With `staged_only`, the state comes from the git index instead of the
@@ -319,92 +407,63 @@ fn sync_command(
     reporter: &Reporter,
 ) -> Result<Outcome, Error> {
     let project = open_project(cli, reporter)?;
+    let run = analyze_and_plan(&project, staged_only, dry_run)?;
 
-    let (controllers, extra_diagnostics, source_complete, staged_changes) = if staged_only {
-        let matcher = crate::discovery::Matcher::new(project.config())?;
-        let staged = crate::staged::staged_sources(&project, &matcher)?;
-        if staged.is_empty() {
-            if format == OutputFormat::Json {
-                // One document even when there is nothing to do.
-                output::write_json(
-                    out,
-                    &output::Sync {
-                        dry_run,
-                        complete: true,
-                        ..output::Sync::default()
-                    },
-                )?;
-            } else {
-                writeln!(out, "No relevant staged NestJS changes detected.")
-                    .map_err(Error::Output)?;
-            }
-            return Ok(Outcome::Success);
+    if run.no_staged_changes {
+        if format == OutputFormat::Json {
+            // One document even when there is nothing to do.
+            output::write_json(
+                out,
+                &output::Sync {
+                    dry_run,
+                    complete: true,
+                    ..output::Sync::default()
+                },
+            )?;
+        } else {
+            writeln!(out, "No relevant staged NestJS changes detected.").map_err(Error::Output)?;
         }
-        if format == OutputFormat::Text {
-            writeln!(out, "Staged: {} relevant change(s):", staged.changes.len())
-                .map_err(Error::Output)?;
-            for change in &staged.changes {
-                writeln!(
-                    out,
-                    "  {} {}",
-                    change.status.as_str(),
-                    change.path.display()
-                )
-                .map_err(Error::Output)?;
-            }
+        return Ok(Outcome::Success);
+    }
+    if staged_only && format == OutputFormat::Text {
+        writeln!(
+            out,
+            "Staged: {} relevant change(s):",
+            run.staged_changes.len()
+        )
+        .map_err(Error::Output)?;
+        for change in &run.staged_changes {
+            writeln!(
+                out,
+                "  {} {}",
+                change.status.as_str(),
+                change.path.display()
+            )
+            .map_err(Error::Output)?;
         }
-        let mut complete = !staged
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.severity == crate::diag::Severity::Error);
-        let analysis = crate::staged::analyze_staged(&project, &staged)?;
-        complete &= !analysis.is_incomplete();
-        let mut diagnostics = staged.diagnostics;
-        diagnostics.extend(analysis.diagnostics);
-        (analysis.controllers, diagnostics, complete, staged.changes)
-    } else {
-        let discovery = discover_controllers(&project)?;
-        let analysis = analyze_files(&project, &discovery.files)?;
-        let complete = !discovery.is_incomplete() && !analysis.is_incomplete();
-        let mut diagnostics = discovery.diagnostics;
-        diagnostics.extend(analysis.diagnostics);
-        (analysis.controllers, diagnostics, complete, Vec::new())
-    };
+    }
 
-    let generation = generate(project.config(), &controllers);
-    let desired = Desired {
-        requests: &generation.requests,
-        skipped: &generation.skipped,
-        complete: source_complete,
-    };
-    let result = synchronize(project.root(), &project.config().bruno, &desired, dry_run)?;
-
-    let diagnostics = extra_diagnostics
-        .iter()
-        .chain(&generation.diagnostics)
-        .chain(&result.diagnostics);
-    for diagnostic in diagnostics {
+    for diagnostic in &run.result.diagnostics {
         reporter.report(diagnostic);
     }
 
-    let generation_failed = generation
-        .diagnostics
-        .iter()
-        .any(|d| d.severity == crate::diag::Severity::Error);
-    let complete = source_complete && !generation_failed && result.is_complete();
+    let complete = run.analysis_complete && run.result.is_complete();
     match format {
-        OutputFormat::Text => {
-            write_sync_report(out, &project.config().bruno, &result, reporter.is_verbose())
-                .map_err(Error::Output)?
-        }
+        OutputFormat::Text => write_sync_report(
+            out,
+            &project.config().bruno,
+            &run.result,
+            reporter.is_verbose(),
+        )
+        .map_err(Error::Output)?,
         OutputFormat::Json => output::write_json(
             out,
             &output::Sync::from_result(
                 &project.config().bruno,
-                &result,
+                &run.result,
                 dry_run,
                 complete,
-                &staged_changes,
+                &run.staged_changes,
             ),
         )?,
     }
@@ -412,6 +471,80 @@ fn sync_command(
         Outcome::Success
     } else {
         Outcome::Incomplete
+    })
+}
+
+/// verify ─▶ shared pipeline as a dry run ─▶ report. Strictly read-only.
+fn verify_command(
+    cli: &Cli,
+    staged_only: bool,
+    format: OutputFormat,
+    out: &mut dyn Write,
+    reporter: &Reporter,
+) -> Result<Outcome, Error> {
+    let project = open_project(cli, reporter)?;
+    // `dry_run = true`: the pipeline plans but never applies; verify has no
+    // other execution path, so it cannot write anything.
+    let run = analyze_and_plan(&project, staged_only, true)?;
+
+    if run.no_staged_changes {
+        if format == OutputFormat::Json {
+            output::write_json(
+                out,
+                &output::Verify {
+                    status: "no_staged_changes",
+                    complete: true,
+                    ..output::Verify::default()
+                },
+            )?;
+        } else {
+            writeln!(out, "No relevant staged NestJS changes; nothing to verify.")
+                .map_err(Error::Output)?;
+        }
+        return Ok(Outcome::Success);
+    }
+
+    for diagnostic in &run.result.diagnostics {
+        reporter.report(diagnostic);
+    }
+
+    let result = &run.result;
+    let source_errors = result
+        .diagnostics
+        .iter()
+        .any(|d| d.severity == crate::diag::Severity::Error);
+    let status = if !run.analysis_complete {
+        "incomplete"
+    } else if !result.conflicts.is_empty() || !result.failed.is_empty() {
+        "blocked"
+    } else if source_errors {
+        "incomplete"
+    } else if result.has_changes() {
+        "out_of_sync"
+    } else {
+        "in_sync"
+    };
+    let complete = run.analysis_complete && result.is_complete();
+    match format {
+        OutputFormat::Text => write_verify_report(out, &project.config().bruno, result, status)
+            .map_err(Error::Output)?,
+        OutputFormat::Json => output::write_json(
+            out,
+            &output::Verify::from_result(
+                &project.config().bruno,
+                result,
+                &run.staged_changes,
+                status,
+                complete,
+            ),
+        )?,
+    }
+    Ok(match status {
+        "in_sync" => Outcome::Success,
+        "out_of_sync" => Outcome::OutOfSync,
+        // Conflicts and an incomplete analysis mean the result cannot be
+        // acted on automatically: the existing "incomplete" exit code.
+        _ => Outcome::Incomplete,
     })
 }
 
@@ -471,6 +604,79 @@ fn write_sync_report(
         writeln!(out, "No files were written.")?;
     }
     Ok(())
+}
+
+/// Read-only verification report: status, the category counts, the details
+/// that need attention, and an honest footer (nothing was modified).
+fn write_verify_report(
+    out: &mut dyn Write,
+    bruno_dir: &std::path::Path,
+    result: &SyncResult,
+    status: &'static str,
+) -> std::io::Result<()> {
+    let show = |path: &std::path::Path| bruno_dir.join(path).display().to_string();
+    let label = match status {
+        "in_sync" => "IN SYNC",
+        "out_of_sync" => "OUT OF SYNC",
+        "blocked" => "BLOCKED",
+        "incomplete" => "INCOMPLETE",
+        _ => "NO STAGED CHANGES",
+    };
+    writeln!(out, "NestBruno Verification")?;
+    writeln!(out)?;
+    writeln!(out, "Status: {label}")?;
+    writeln!(out)?;
+    writeln!(out, "Missing:   {}", result.created.len())?;
+    writeln!(out, "Outdated:  {}", result.updated.len())?;
+    writeln!(out, "Stale:     {}", result.deleted.len())?;
+    writeln!(out, "Unchanged: {}", result.unchanged.len())?;
+    writeln!(out, "Conflicts: {}", result.conflicts.len())?;
+    writeln!(out, "Preserved: {}", result.preserved.len())?;
+    if !result.failed.is_empty() {
+        writeln!(out, "Failed:    {}", result.failed.len())?;
+    }
+    for conflict in &result.conflicts {
+        writeln!(out)?;
+        writeln!(
+            out,
+            "CONFLICT  {}: {}",
+            show(&conflict.path),
+            conflict.reason.description()
+        )?;
+        writeln!(
+            out,
+            "          what to do: {}",
+            conflict.reason.suggestion()
+        )?;
+    }
+    for (path, reason) in &result.failed {
+        writeln!(out)?;
+        writeln!(out, "FAILED    {}: {reason}", show(path))?;
+    }
+    writeln!(out)?;
+    match status {
+        "in_sync" => writeln!(out, "Verification passed. The collection is synchronized.")?,
+        "out_of_sync" => {
+            writeln!(out, "Verification failed.")?;
+            writeln!(out, "Run `nestbruno sync` to reconcile the collection.")?;
+        }
+        "blocked" => {
+            writeln!(out, "Verification failed.")?;
+            writeln!(
+                out,
+                "Resolve the conflicts, then run `nestbruno sync` again."
+            )?;
+        }
+        "incomplete" => {
+            writeln!(
+                out,
+                "Verification could not establish a complete state; see the error: diagnostics on stderr."
+            )?;
+            writeln!(out, "Fix the problems, then run `nestbruno verify` again.")?;
+        }
+        _ => writeln!(out, "No relevant staged NestJS changes; nothing to verify.")?,
+    }
+    writeln!(out, "The collection was not modified.")
 }
 
 /// Run watch mode until Ctrl-C (or SIGTERM).

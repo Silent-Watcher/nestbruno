@@ -267,7 +267,7 @@ impl StagedChangeEntry {
     }
 }
 
-/// One conflict in [`Sync`].
+/// One conflict in [`Sync`] / [`Verify`].
 #[derive(Serialize)]
 pub struct ConflictEntry {
     pub path: String,
@@ -276,11 +276,100 @@ pub struct ConflictEntry {
     pub suggestion: &'static str,
 }
 
-/// One failed operation in [`Sync`].
+/// One failed operation in [`Sync`] / [`Verify`].
 #[derive(Serialize)]
 pub struct FailedEntry {
     pub path: String,
     pub reason: String,
+}
+
+/// `verify --format json` (Phase 14.2). The categories follow the
+/// synchronization plan: a *missing* request is one that would be created,
+/// *outdated* one that would be updated, *stale* one that would be deleted.
+/// Conflicts and preserved files follow the existing ownership rules.
+#[derive(Serialize, Default)]
+pub struct Verify {
+    /// `in_sync`, `out_of_sync`, `blocked`, `incomplete` or
+    /// `no_staged_changes`.
+    pub status: &'static str,
+    pub complete: bool,
+    pub summary: VerifySummary,
+    pub changes: VerifyChanges,
+    pub staged_changes: Vec<StagedChangeEntry>,
+    pub conflicts: Vec<ConflictEntry>,
+    pub failed: Vec<FailedEntry>,
+    pub diagnostics: Vec<JsonDiagnostic>,
+}
+
+impl Verify {
+    pub fn from_result(
+        bruno_dir: &std::path::Path,
+        result: &SyncResult,
+        staged_changes: &[StagedChange],
+        status: &'static str,
+        complete: bool,
+    ) -> Self {
+        let show = |path: &std::path::Path| bruno_dir.join(path).display().to_string();
+        Self {
+            status,
+            complete,
+            summary: VerifySummary {
+                missing: result.created.len(),
+                outdated: result.updated.len(),
+                stale: result.deleted.len(),
+                unchanged: result.unchanged.len(),
+                conflicts: result.conflicts.len(),
+                preserved: result.preserved.len(),
+            },
+            changes: VerifyChanges {
+                created: result.created.iter().map(|p| show(p)).collect(),
+                updated: result.updated.iter().map(|p| show(p)).collect(),
+                deleted: result.deleted.iter().map(|p| show(p)).collect(),
+            },
+            staged_changes: staged_changes.iter().map(StagedChangeEntry::new).collect(),
+            conflicts: result
+                .conflicts
+                .iter()
+                .map(|c| ConflictEntry {
+                    path: show(&c.path),
+                    reason: c.reason.code(),
+                    description: c.reason.description(),
+                    suggestion: c.reason.suggestion(),
+                })
+                .collect(),
+            failed: result
+                .failed
+                .iter()
+                .map(|(path, reason)| FailedEntry {
+                    path: show(path),
+                    reason: reason.clone(),
+                })
+                .collect(),
+            diagnostics: diagnostics_from(&result.diagnostics),
+        }
+    }
+}
+
+/// The category counts of a verification.
+#[derive(Serialize, Default)]
+pub struct VerifySummary {
+    /// Requests that would be created (the generated request does not exist).
+    pub missing: usize,
+    /// Requests that would be updated (they differ from the desired state).
+    pub outdated: usize,
+    /// Requests that would be deleted (their route no longer exists).
+    pub stale: usize,
+    pub unchanged: usize,
+    pub conflicts: usize,
+    pub preserved: usize,
+}
+
+/// The pending changes of a verification, as collection-relative paths.
+#[derive(Serialize, Default)]
+pub struct VerifyChanges {
+    pub created: Vec<String>,
+    pub updated: Vec<String>,
+    pub deleted: Vec<String>,
 }
 
 /// A [`Diagnostic`] as a structured object.

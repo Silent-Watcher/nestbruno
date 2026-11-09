@@ -1,6 +1,6 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, v0.5.0 + Phase 14.1 (`--format json` CLI output) implemented.*
+*Last updated: 2026-11-10, v0.5.0 + Phase 14.1/14.2 (JSON output, read-only verify) implemented.*
 
 ## One-paragraph state
 
@@ -42,7 +42,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 639 tests (628 after Phase 13; +11 for Phase 14.1)
+- `cargo test --all-features` — pass, 656 tests (640 after Phase 14.1; +16 for Phase 14.2)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -56,12 +56,16 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 | `generate [--force]` | writes `.bru` requests with parameter metadata and cross-file DTO/Zod body skeletons |
 | `sync [--dry-run]` | reconciles generated requests; preserves conflicts and user edits; `--format json` |
 | `sync --staged [--dry-run]` | reconstructs desired state from the Git index for relevant Controller files; `--format json` |
+| `verify [--staged]` | read-only drift check reusing the sync pipeline as a dry run; exit 0/1/4; `--format json` |
 | `watch [--debounce MS]` | incremental route sync with full-resync fallbacks |
 
 **New in Phase 14 (in progress):**
 - 14.1 done: `discover`/`routes`/`sync` accept `--format json` and print
   exactly one JSON document to stdout (diagnostics included as structured
   objects; human text stays the default; exit codes unchanged).
+- 14.2 done: `verify` (with `--staged`) checks the collection against the
+  sources strictly read-only; exit 1 when out of sync, 4 on conflicts or
+  incomplete analysis; shares the sync pipeline, never duplicates it.
 
 **New in Phase 11 (shipped in v0.2.0):**
 - Cross-file class/interface DTO resolution from imports in Controller files

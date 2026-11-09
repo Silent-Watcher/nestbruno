@@ -110,6 +110,52 @@ committed. Behavior:
 - Git is never modified, and the working-tree version of a staged file is
   never read.
 
+## `nestbruno verify [--staged]`
+
+Checks whether the generated collection still matches the sources — without
+writing anything. It runs the same pipeline as `sync` (analysis,
+generation, reconciliation) as a dry run and reports the differences:
+
+```txt
+NestBruno Verification
+
+Status: OUT OF SYNC
+
+Missing:   2
+Outdated:  1
+Stale:     1
+Unchanged: 4
+Conflicts: 0
+Preserved: 3
+
+Verification failed.
+Run `nestbruno sync` to reconcile the collection.
+The collection was not modified.
+```
+
+- **Strictly read-only:** no collection directory is created, no `.bru`
+  file is created, updated or deleted, no ownership stamp or timestamp is
+  touched — even on errors, conflicts and an incomplete analysis.
+- Statuses: `IN SYNC`, `OUT OF SYNC` (missing/outdated/stale requests),
+  `BLOCKED` (conflicts or failed operations), `INCOMPLETE` (the analysis
+  could not establish a complete state), `NO STAGED CHANGES` (with
+  `--staged`).
+- Exit codes: **0** in sync, **1** out of sync (usable as a CI failure
+  signal), **4** blocked or incomplete, plus the usual 2/3 for usage and
+  configuration errors.
+- `verify --staged` compares the collection against the Git index state
+  (same semantics as `sync --staged`); with no relevant staged changes it
+  is a clean no-op.
+- `verify --format json` prints one JSON document: `status`
+  (`in_sync`/`out_of_sync`/`blocked`/`incomplete`/`no_staged_changes`),
+  `complete`, a `summary` with the category counts, `changes` (created/
+  updated/deleted paths), `conflicts`, `failed` and `diagnostics`.
+
+`verify` vs `sync --dry-run`: a dry run answers "what would sync do?" with
+sync's exit code (0 even when changes are pending). `verify` answers "is
+the collection in sync?" and fails (exit 1) when it is not — use it in CI;
+use `--dry-run` when you want the plan.
+
 ## `nestbruno watch [--debounce <MS>]`
 
 Runs an initial sync, then keeps the collection synchronized while you edit.
@@ -122,8 +168,8 @@ SIGINT / SIGTERM / SIGHUP (exit 0) or when stdout closes. Details:
 
 | Code | Meaning |
 | --- | --- |
-| 0 | success (a dry run with pending changes is also 0) |
-| 1 | runtime failure (I/O, missing project directory, ...) |
+| 0 | success (a dry run with pending changes is also 0; `verify` passes) |
+| 1 | runtime failure (I/O, missing project directory, ...); `verify` also uses 1 when the collection is **out of sync** (CI failure signal) |
 | 2 | usage error (clap) |
 | 3 | configuration or project layout error |
-| 4 | finished but **incomplete**: some source files or collection files could not be processed — see the `error:` diagnostics on stderr. Destructive sync actions are suppressed in this state. |
+| 4 | finished but **incomplete**: some source files or collection files could not be processed — see the `error:` diagnostics on stderr. Destructive sync actions are suppressed in this state. `verify` also uses 4 for conflicts (blocked) and an incomplete analysis. |

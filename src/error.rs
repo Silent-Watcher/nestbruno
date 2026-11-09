@@ -10,7 +10,9 @@ use std::path::PathBuf;
 /// Exit codes used by the CLI. `2` is reserved for usage errors, which clap
 /// reports itself.
 pub mod exit_code {
-    /// Unspecified runtime failure (I/O, output serialization).
+    /// Unspecified runtime failure (I/O, output serialization). `verify`
+    /// also uses this code when the collection is out of sync (CI failure
+    /// signal, distinct from the "incomplete" code 4).
     pub const FAILURE: u8 = 1;
     /// The configuration or the project layout is invalid.
     pub const CONFIG: u8 = 3;

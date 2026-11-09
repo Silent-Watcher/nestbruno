@@ -8,6 +8,16 @@ All notable changes to NestBruno are documented here. The format follows
 
 ### Added
 
+- **Read-only collection verification** (Phase 14.2): the new `nestbruno
+  verify` command checks whether the generated collection matches the
+  current NestJS sources without writing anything — it reuses the existing
+  synchronization pipeline as a dry run and reports `missing` (would be
+  created), `outdated` (would be updated), `stale` (would be deleted),
+  conflicts and preserved files. Exit codes: 0 in sync, 1 out of sync
+  (CI failure signal), 4 on conflicts or an incomplete analysis. Supports
+  `--format json` (status, summary, changes, conflicts, diagnostics) and
+  `--staged` (compare against the Git index state). A regression test
+  proves verification never creates the collection directory.
 - **Machine-readable JSON output** (Phase 14.1): `discover`, `routes` and
   `sync` accept `--format json` and print exactly one JSON document to
   stdout — routes with parameters, body shape and source locations,

@@ -65,7 +65,11 @@
 - **Phase 14 (CLI & CI developer experience):** in progress. Milestone 14.1
   shipped: `discover`, `routes` and `sync` accept `--format json` and print
   exactly one JSON document to stdout (diagnostics as structured objects,
-  deterministic ordering, human text unchanged as the default).
+  deterministic ordering, human text unchanged as the default). Milestone
+  14.2 shipped: `nestbruno verify` checks the collection against the
+  sources strictly read-only (sync pipeline reused as a dry run), with
+  exit 0 in sync / 1 out of sync / 4 blocked or incomplete, JSON output and
+  `--staged` support.
 - **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
   v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
   paths (including NodeNext `.js`/`.mjs`/`.cjs` specifier extensions),
@@ -93,6 +97,7 @@
 | `generate [--force]` | Works: writes request files with parameter type metadata and cross-file DTO/Zod body skeletons; existing differing files are left alone unless `--force`; nothing is ever deleted. |
 | `sync [--dry-run]` | Works: creates, updates in place (including DTO/metadata changes), deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
 | `sync --staged [--dry-run]` | Works: the same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git. `--format json` (14.1) on discover/routes/sync: one JSON document on stdout. |
+| `verify [--staged]` | Works (14.2): read-only drift check reusing the sync pipeline as a dry run; exit 0 in sync, 1 out of sync (CI), 4 conflicts/incomplete; never creates or modifies anything. |
 | `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
 
 ## Current limitations

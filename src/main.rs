@@ -19,6 +19,7 @@ fn main() -> ExitCode {
         Ok(outcome) => match flushed {
             Ok(()) => match outcome {
                 Outcome::Success => ExitCode::SUCCESS,
+                Outcome::OutOfSync => ExitCode::from(exit_code::FAILURE),
                 Outcome::Incomplete => ExitCode::from(exit_code::INCOMPLETE),
             },
             Err(err) => finish_with_error(&Error::Output(err)),

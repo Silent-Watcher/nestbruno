@@ -485,9 +485,45 @@ bump and no releases during this phase (explicit prompt rule).
   with diagnostics on stderr, invalid config producing no partial JSON,
   byte-identical repeated runs, and the default format staying human
   text. Plus 1 parse-level CLI unit test. Gates: fmt + clippy `-D warnings`
-  clean; 639 tests pass (was 628).
+  clean; 640 tests pass (was 628).
 - Docs: CHANGELOG (Unreleased), STATUS, `docs/project-status.md`,
   `website/guide/commands.md`.
+
+#### Milestone 14.2 — Read-only collection verification (completed 2026-11-10)
+
+- Shared pipeline extracted: `analyze_and_plan` in `src/commands.rs` runs
+  the unchanged sync pipeline (analysis → generation → reconcile) for
+  `sync` and the new `verify`; `verify` is its dry-run path plus reporting
+  — no second reconciliation algorithm. Diagnostics are merged into
+  `SyncResult.diagnostics` in report order, so sync's human output,
+  stderr and JSON content are preserved.
+- CLI: `nestbruno verify [--staged] [--format json]`; new
+  `Outcome::OutOfSync` (exit 1, documented as the CI drift signal).
+  Exit mapping: 0 in sync; 1 out of sync; 4 blocked (conflicts/failed
+  operations, including critical conflicts) or incomplete (analysis could
+  not establish the desired state); 3/1/2 via the existing `Error` path.
+- Status categories follow the plan semantics: missing = would be created,
+  outdated = would be updated, stale = would be deleted, conflicts and
+  preserved per the ownership rules; human report shows the counts, the
+  conflict/failed details and an explicit "The collection was not
+  modified." footer.
+- JSON: `status` (`in_sync`/`out_of_sync`/`blocked`/`incomplete`/
+  `no_staged_changes`), `complete`, `summary`, `changes`, `conflicts`,
+  `failed`, `diagnostics`; staged mode adds `staged_changes`; a no-op
+  staged verify still emits a valid document.
+- Tests: 15 integration (`tests/verify.rs`) — in-sync passes with a full
+  project-tree comparison and an mtime equality check (no rewrite, not
+  even in place); missing/outdated/stale detection with tree snapshots;
+  user-modified requests reported as conflicts with content preserved;
+  critical conflicts; unknown files preserved; incomplete analysis (unix)
+  safe with nothing modified; empty project never bootstraps a collection;
+  the required regression test proving verify never creates the collection
+  directory; JSON validity/determinism; staged drift and staged no-op;
+  invalid config prints no JSON. Plus 1 parse-level CLI unit test. Gates:
+  fmt + clippy `-D warnings` clean; 656 tests pass (was 640).
+- Docs: CHANGELOG (Unreleased), STATUS, `docs/project-status.md`,
+  `website/guide/commands.md` (verify section + exit codes),
+  `website/guide/synchronization.md` (verify vs `sync --dry-run`).
 
 ## Known gaps inside completed phases
 
