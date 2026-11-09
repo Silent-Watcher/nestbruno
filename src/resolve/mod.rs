@@ -784,6 +784,7 @@ pub fn resolve_cross_file_dtos(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::fs;
     use tempfile::tempdir;
 
@@ -1536,6 +1537,107 @@ export class UsersController {
         let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("Thing", Path::new("src/users/users.controller.ts"));
         assert_eq!(resolution, DtoResolution::Unknown);
+    }
+
+    // ------------------------------------------------------------ properties
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        /// Resolution is a pure function of the source tree: the same tree
+        /// gives the same result, for class DTOs, re-export chains and
+        /// cycles alike, and always terminates.
+        #[test]
+        fn resolution_is_deterministic_and_terminates(
+            hops in 0usize..8,
+            cycle in proptest::bool::ANY,
+            field_count in 1usize..5,
+            shared in "[a-z]{1,8}",
+        ) {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            let fields: Vec<String> = (0..field_count)
+                .map(|i| format!("f{i}: string;"))
+                .collect();
+            // A chain of `hops` re-export files; optionally the last one
+            // points back at the first (a cycle).
+            fs::create_dir_all(root.join("src/d")).unwrap();
+            fs::write(
+                root.join("src/d/leaf.ts"),
+                format!("export class {} {{ {} }}", shared, fields.join(" ")),
+            )
+            .unwrap();
+            for i in 0..hops {
+                let from = if i == 0 { "./d/leaf".to_owned() } else { format!("./c{}", i - 1) };
+                let back = if cycle && i + 1 == hops {
+                    format!(" export {{ {shared} }} from './c0';")
+                } else {
+                    String::new()
+                };
+                fs::write(
+                    root.join(format!("src/c{i}.ts")),
+                    format!("export {{ {shared} }} from '{from}';{back}"),
+                )
+                .unwrap();
+            }
+            fs::create_dir_all(root.join("src/users")).unwrap();
+            let specifier = if hops == 0 { "./d/leaf".to_owned() } else { format!("../c{}", hops - 1) };
+            fs::write(
+                root.join("src/users/users.controller.ts"),
+                format!(
+                    "import {{ {shared} }} from '{specifier}';
+@Controller('users') export class U {{ @Post() c(@Body() dto: {shared}) {{}} }}
+"
+                ),
+            )
+            .unwrap();
+
+            let config = Config {
+                source: PathBuf::from("src"),
+                bruno: PathBuf::from("bruno"),
+                base_url: "{{baseUrl}}".into(),
+                include: vec!["**/*.controller.ts".into()],
+                exclude: vec![],
+            };
+            let matcher = Matcher::new(&config).unwrap();
+            let resolve = || {
+                let mut ctx = ResolverContext::new(root);
+                let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
+                resolver.resolve_type(&shared, Path::new("src/users/users.controller.ts"))
+            };
+            let first = resolve();
+            let second = resolve();
+            prop_assert_eq!(first, second);
+        }
+
+        /// Containment: no project-relative path input ever produces a read
+        /// outside the canonical project root — the validator either rejects
+        /// or names a path under the root.
+        #[test]
+        fn containment_never_escapes_the_root(
+            segments in proptest::collection::vec("[a-zA-Z0-9_.]{0,6}", 0..6),
+            escape in proptest::bool::ANY,
+        ) {
+            use crate::resolve::containment::validated_dependency_path;
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().canonicalize().unwrap();
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(root.join("src/real.ts"), "export class R {}").unwrap();
+
+            let mut relative = PathBuf::new();
+            for segment in &segments {
+                relative.push(segment.as_str());
+            }
+            if escape {
+                relative = Path::new("..").join(&relative);
+            }
+
+            // The validator either rejects the path or returns something
+            // strictly inside the canonical root.
+            if let Ok(validated) = validated_dependency_path(&root, &relative) {
+                prop_assert!(validated.starts_with(&root));
+            }
+        }
     }
 
     #[test]

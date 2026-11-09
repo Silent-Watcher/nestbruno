@@ -39,6 +39,17 @@ All notable changes to NestBruno are documented here. The format follows
   If nothing relevant is staged it remains a clean no-op, and the desired
   state is still reconstructed from the whole index.
 
+### Added
+
+- Acceptance and property coverage for the resolver (Milestone 11.1.6):
+  a real-binary pipeline suite (`tests/cross_file.rs`) asserting actual
+  `.bru` output for class/interface/Zod DTOs, NodeNext specifiers,
+  `#src` subpaths, re-export chains, update-in-place reconciliation and
+  determinism; property tests for deterministic resolution and
+  termination over random re-export/cycle graphs, containment (no path
+  input can escape the canonical root), and incremental ≡ fresh-sync
+  equivalence under random dependency-edit histories.
+
 ### Fixed
 
 - Watch mode now invalidates controllers on dependency-only changes

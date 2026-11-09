@@ -1695,6 +1695,64 @@ mod tests {
         }
     }
 
+    /// Slot contents for a shared DTO: field sets that grow, shrink and
+    /// rename, plus a broken state.
+    fn dto_variant(variant: usize) -> String {
+        match variant {
+            0 => "export class Pager { a: string; b: string; }\n".to_owned(),
+            1 => "export class Pager { a: string; }\n".to_owned(),
+            2 => "export class Pager { a: string; c: number; d: boolean; }\n".to_owned(),
+            3 => "export class Pager { renamed: string; }\n".to_owned(),
+            _ => "export class Pager { a: string".to_owned(), // broken
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(32))]
+
+        /// Dependency-only edits (fields added, removed, renamed; broken
+        /// states; controller rewrites) leave the incremental collection
+        /// identical to a fresh full sync of the final sources.
+        #[test]
+        fn a_history_of_dependency_edits_gives_the_same_collection_as_a_fresh_sync(
+            batches in proptest::collection::vec(
+                proptest::collection::vec(0usize..5, 1..3),
+                1..6,
+            ),
+        ) {
+            let controller = "import { Pager } from './shared/pager';\n\
+                 @Controller('u') export class UController { @Post() c(@Body() dto: Pager) {} }\n";
+            let incremental = tempfile::tempdir().unwrap();
+            write(incremental.path(), "src/u.controller.ts", controller);
+            write(incremental.path(), "src/shared/pager.ts", &dto_variant(0));
+            let project = Project::open(incremental.path()).unwrap();
+            let (mut ws, _) = Workspace::start(project).unwrap();
+
+            for batch in &batches {
+                let mut touched = BTreeSet::new();
+                for variant in batch {
+                    write(incremental.path(), "src/shared/pager.ts", &dto_variant(*variant));
+                    touched.insert(PathBuf::from("src/shared/pager.ts"));
+                }
+                ws.refresh(&touched).unwrap();
+            }
+
+            // Repair any broken state so both sides see a complete tree.
+            write(incremental.path(), "src/shared/pager.ts", &dto_variant(0));
+            ws.refresh(&dirty(&["src/shared/pager.ts"])).unwrap();
+
+            // Reference: the same final sources through a fresh full sync.
+            let fresh = tempfile::tempdir().unwrap();
+            write(fresh.path(), "src/u.controller.ts", controller);
+            write(fresh.path(), "src/shared/pager.ts", &dto_variant(0));
+            reference_sync(&Project::open(fresh.path()).unwrap());
+
+            prop_assert_eq!(contents(incremental.path()), contents(fresh.path()));
+            let again = ws.refresh(&dirty(&["src/shared/pager.ts"])).unwrap();
+            prop_assert!(!again.result.has_changes());
+        }
+    }
+
     fn incremental_all_paths(root: &Path) -> BTreeSet<PathBuf> {
         let mut out = BTreeSet::new();
         for slot in 0..3 {

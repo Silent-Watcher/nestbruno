@@ -58,7 +58,7 @@ The canonical engineering record is in
 [`docs/phases/phase-11-cross-file-dto-resolution.md`](docs/phases/phase-11-cross-file-dto-resolution.md).
 The user-facing guide is `website/guide/dto-resolution.md`.
 
-## Phase 11.1 — Cross-file DTO resolver completion — In Progress (started 2026-11-10)
+## Phase 11.1 — Cross-file DTO resolver completion — Completed (2026-11-10)
 
 Completes the engineering work deferred from Phase 11, milestone by
 milestone (owner-authorized master prompt, 2026-11-10):
@@ -86,10 +86,16 @@ milestone (owner-authorized master prompt, 2026-11-10):
    namespace-imported `createZodDto`, `package.json` `imports` local
    subpaths (`resolve/packages.rs`).
 6. 11.1.6 Resolver acceptance (integration + property) tests and
-   documentation synchronization.
+   documentation synchronization — completed 2026-11-10: real-binary
+   pipeline suite (`tests/cross_file.rs`), property tests (deterministic
+   resolution + termination, containment, dependency-edit equivalence),
+   and the engineering record
+   [`docs/phases/phase-11.1-resolver-completion.md`](docs/phases/phase-11.1-resolver-completion.md).
 
-A version bump follows at phase completion per the owner's semver rule
-(fix/hardening → patch at minimum; shipped features may justify minor).
+**Phase 11.1 is complete** (2026-11-10). A version bump followed per the
+owner's semver rule; the shipped features (staged cross-file resolution,
+watch dependency invalidation, Zod completion, `#src` subpaths) justify
+the minor bump.
 
 ## Phase 12 — Global prefix and URI versioning — Not Started
 

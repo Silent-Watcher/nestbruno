@@ -49,10 +49,12 @@ edges:
 - Only modules reachable from **imports of discovered controller files**
   are read; the resolver never scans the source tree for DTO files and
   never enters `node_modules`.
-- Work is bounded per run: four re-export hops, 512 dependency files,
-  4 MiB aggregate dependency source, 256 KiB per file, 1024 DTO
-  declarations, 64 properties per DTO. Exceeding a bound yields an
-  `Unknown` body with a warning — never unbounded traversal.
+- Work is bounded per run: four re-export hops, 4,096 import edges, 512
+  dependency files, 4 MiB aggregate dependency source, 256 KiB per file,
+  1,024 DTO declarations, 64 properties per DTO. All bounds are enforced
+  with reject-the-exceeding-operation semantics: exceeding one yields an
+  `Unknown` body with a warning — never unbounded traversal, never a
+  partially analyzed module.
 - Imported files are subject to the same read rules as controller files
   (`.git` and `node_modules` components are hard-skipped; configured
   exclude patterns apply).

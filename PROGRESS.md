@@ -401,6 +401,32 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
   staged `#src` resolution). Gates: fmt + clippy `-D warnings` clean;
   598 tests pass (was 586).
 
+#### Milestone 11.1.6 — Resolver acceptance testing and documentation (completed 2026-11-10)
+
+- **Pipeline acceptance** (`tests/cross_file.rs`, new, 9 tests): the real
+  binary against real project shapes, asserting actual `.bru` output —
+  class/interface/Zod `z.infer` DTOs, NodeNext `.js` specifiers,
+  `package.json` `#src` subpaths, four-hop re-export chains, an unresolvable
+  import staying `Unknown` with the explanatory docs line, update-in-place
+  reconciliation on a DTO change (no rename, no recreate), and byte-identical
+  repeated syncs.
+- **Property tests** (+3): deterministic resolution and termination over
+  random re-export chains with random cycles (`resolution_is_deterministic_
+  and_terminates`); containment — no project-relative path input can make
+  the validator return a path outside the canonical root
+  (`containment_never_escapes_the_root`); a history of dependency-only
+  edits (add/remove/rename fields, broken states, with two milestones of
+  controller coverage already property-tested) leaves the incremental
+  collection identical to a fresh full sync
+  (`a_history_of_dependency_edits_gives_the_same_collection_as_a_fresh_sync`).
+- **Documentation**: engineering record
+  `docs/phases/phase-11.1-resolver-completion.md` (canonical handoff for
+  the whole phase); ROADMAP, STATUS, KNOWN_ISSUES, CHANGELOG,
+  architecture/security/project-status pages, and the website guides
+  (dto-resolution, limitations, safety, commands) synchronized; website
+  build passes.
+- Gates: fmt + clippy `-D warnings` clean; 610 tests pass (was 598).
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

@@ -1,13 +1,13 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, during Phase 11.1 (Milestones 11.1.1–11.1.5 completed; 11.1.6 acceptance testing remains).*
+*Last updated: 2026-11-10, Phase 11.1 complete (all six milestones); Phase 12 is next.*
 
 ## One-paragraph state
 
-The product is at **v0.2.1** with **Phase 11.1 in progress** (owner-authorized
-master prompt of 2026-11-10: resolver completion → Phase 12 global
-prefix/versioning → Phase 13 query/param DTOs; version bumps follow semver
-per completed phase). Milestone 11.1.1: dependency reads are gated by
+The product ships **Phase 11.1 complete** (owner-authorized master prompt
+of 2026-11-10: resolver completion → Phase 12 global prefix/versioning →
+Phase 13 query/param DTOs; version bumps follow semver per completed
+phase). Milestone 11.1.1: dependency reads are gated by
 canonical-root, symlink-free, regular-file containment and all resolver
 budgets are enforced. Milestone 11.1.2: cross-file resolution is run-scoped —
 one `ResolverContext` per analysis run shares the module cache across
@@ -41,7 +41,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 598 tests (539 at Phase 11; +20, +3, +11, +13, +12 from Milestones 11.1.1–11.1.5)
+- `cargo test --all-features` — pass, 610 tests (539 at Phase 11; +71 across Phase 11.1)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -92,9 +92,13 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 - Milestone 11.1.5 done: Zod subset complete (multi-step chains,
   provenance-checked cross-file/forward `z.infer`, namespace
   `createZodDto`, `#src` imports subpaths through both providers).
-- Next: 11.1.6 resolver acceptance (integration + property) tests and
-  documentation synchronization, then the Phase 11.1 version bump. See
-  `ROADMAP.md` and `PROGRESS.md` for detail.
+- Milestone 11.1.6 done: real-binary pipeline acceptance suite
+  (`tests/cross_file.rs`) and property coverage (deterministic
+  resolution/termination, containment, dependency-edit equivalence);
+  engineering record in
+  `docs/phases/phase-11.1-resolver-completion.md`.
+- Next: Phase 12 (global prefix and URI versioning). See `ROADMAP.md`
+  and `PROGRESS.md` for detail.
 
 ## Phase 11 — remaining work (deferred to future phases)
 
