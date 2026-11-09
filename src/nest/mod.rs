@@ -10,7 +10,10 @@
 //! diagnostics, and any `Severity::Error` diagnostic means the result for that
 //! file is *unknown* (not "empty"), which later phases must respect.
 
+pub mod app;
 pub mod extract;
+
+use app::BootstrapConfig;
 
 use std::fs::{self, File};
 use std::io::Read;
@@ -41,6 +44,9 @@ pub struct ProjectContext<'a> {
     pub config: &'a Config,
     /// Discovery matcher for exclusion checks.
     pub matcher: &'a Matcher,
+    /// Statically analyzed bootstrap configuration (global prefix, URI
+    /// versioning).
+    pub app: &'a BootstrapConfig,
     /// Shared run state for cross-file DTO resolution.
     pub resolver: &'a mut ResolverContext,
 }
@@ -101,13 +107,14 @@ pub fn analyze_sources_with_context(
     sources: &[(PathBuf, String)],
     project: &Project,
     resolver_context: &mut ResolverContext,
+    app: &BootstrapConfig,
 ) -> Result<Analysis, Error> {
-    analyze_sources_impl(sources, Some((project, resolver_context)))
+    analyze_sources_impl(sources, Some((project, resolver_context, app)))
 }
 
 fn analyze_sources_impl(
     sources: &[(PathBuf, String)],
-    project: Option<(&Project, &mut ResolverContext)>,
+    project: Option<(&Project, &mut ResolverContext, &BootstrapConfig)>,
 ) -> Result<Analysis, Error> {
     let mut analysis = Analysis::default();
     for (_, mut result) in analyze_contents(sources, project)? {
@@ -146,12 +153,14 @@ pub fn analyze_each_with_context(
     let source_prefix = project.config().source.clone();
     let config = project.config();
     let matcher = Matcher::new(config).ok();
+    let app = bootstrap_for(project);
     run_analysis(sources, move |relative, content| {
         let mut project_context = matcher.as_ref().map(|matcher| ProjectContext {
             root,
             source_prefix: &source_prefix,
             config,
             matcher,
+            app: &app,
             resolver: &mut *resolver_context,
         });
         match content {
@@ -173,15 +182,15 @@ pub fn analyze_each_with_context(
 /// Like [`analyze_sources`], but keeps the result of each source separate.
 fn analyze_contents(
     sources: &[(PathBuf, String)],
-    project: Option<(&Project, &mut ResolverContext)>,
+    project: Option<(&Project, &mut ResolverContext, &BootstrapConfig)>,
 ) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
     let owned: Vec<(PathBuf, Option<String>)> = sources
         .iter()
         .map(|(path, content)| (path.clone(), Some(content.clone())))
         .collect();
-    let (project, mut context) = match project {
-        Some((project, context)) => (Some(project), Some(context)),
-        None => (None, None),
+    let (project, mut context, app) = match project {
+        Some((project, context, app)) => (Some(project), Some(context), app),
+        None => (None, None, &BootstrapConfig::default()),
     };
     let matcher = project.and_then(|project| Matcher::new(project.config()).ok());
     run_analysis(owned, move |relative, content| {
@@ -192,6 +201,7 @@ fn analyze_contents(
                 source_prefix: &project.config().source,
                 config: project.config(),
                 matcher,
+                app,
                 resolver,
             }),
             _ => None,
@@ -318,6 +328,71 @@ fn guarded<T>(work: impl FnOnce() -> T) -> Result<T, String> {
             .or_else(|| payload.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "unknown panic".to_owned())
     })
+}
+
+/// The statically analyzed bootstrap configuration for one run: the
+/// configured file or the first conventional candidate, read with the
+/// regular-file rules. A missing conventional file is normal (no prefix, no
+/// versioning); a configured file that cannot be read warns once.
+fn bootstrap_for(project: &Project) -> BootstrapConfig {
+    let configured = project.config().bootstrap.as_deref();
+    match find_bootstrap_source(project, configured) {
+        Ok(Some((relative, source))) => {
+            let mut config = crate::nest::app::analyze_bootstrap(&source, &relative);
+            if configured.is_none() {
+                // Conventional discovery is best effort: an unparsable
+                // candidate is not remarkable enough to warn about per run.
+                config
+                    .diagnostics
+                    .retain(|diagnostic| !diagnostic.message.contains("cannot be parsed"));
+            }
+            config
+        }
+        Ok(None) => BootstrapConfig::default(),
+        Err(diagnostic) => {
+            let mut config = BootstrapConfig::default();
+            config.diagnostics.push(diagnostic);
+            config
+        }
+    }
+}
+
+fn find_bootstrap_source(
+    project: &Project,
+    configured: Option<&str>,
+) -> Result<Option<(PathBuf, String)>, Diagnostic> {
+    use crate::diag::Severity;
+    let root = project.root();
+    let candidate = match configured {
+        Some(configured) => {
+            let path = PathBuf::from(configured);
+            if std::fs::symlink_metadata(root.join(&path)).is_err() {
+                return Err(Diagnostic::new(
+                    Severity::Warning,
+                    Some(path),
+                    "the configured bootstrap file does not exist; global prefix and versioning are not applied",
+                ));
+            }
+            path
+        }
+        None => match crate::nest::app::find_bootstrap_file(root, None) {
+            Some(path) => path,
+            None => return Ok(None),
+        },
+    };
+    let source = match fs::read_to_string(root.join(&candidate)) {
+        Ok(source) => source,
+        Err(err) => {
+            return Err(Diagnostic::new(
+                Severity::Warning,
+                Some(candidate),
+                format!(
+                    "cannot read the bootstrap file ({err}); global prefix and versioning are not applied"
+                ),
+            ));
+        }
+    };
+    Ok(Some((candidate, source)))
 }
 
 #[cfg(test)]

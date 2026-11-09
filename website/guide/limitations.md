@@ -8,8 +8,10 @@ NestBruno reflects what is statically visible in decorators. Not modelled:
   namespace imports (`common.Get`) and custom decorators (`@MyGet`) are not
   recognized.
 - **Top-level classes only** — controller inheritance is not followed.
-- **No global prefix / versioning / `RouterModule`** — extracted paths can
-  differ from the running application's routes.
+- **Static prefix and versioning only** — `setGlobalPrefix` and URI
+  versioning are composed from the bootstrap when statically provable
+  (Phase 12); `RouterModule`, dynamic bootstrap expressions, and
+  header/media-type versioning strategies do not appear in URLs.
 - **Sources over 256 KiB are skipped** (reported as an error).
 - **No field-level merge** — any user edit locks the whole request; a route
   change on an edited request is a conflict, not a merge. `seq` is

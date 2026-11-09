@@ -800,6 +800,7 @@ mod tests {
             base_url: "{{baseUrl}}".into(),
             include: vec!["**/*.controller.ts".into()],
             exclude: vec!["**/dist/**".into(), "**/node_modules/**".into()],
+            bootstrap: None,
         };
         let matcher = Matcher::new(&config).unwrap();
         (dir, root, config, matcher)
@@ -1598,6 +1599,7 @@ export class UsersController {
                 base_url: "{{baseUrl}}".into(),
                 include: vec!["**/*.controller.ts".into()],
                 exclude: vec![],
+                bootstrap: None,
             };
             let matcher = Matcher::new(&config).unwrap();
             let resolve = || {

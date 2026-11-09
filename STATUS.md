@@ -1,6 +1,6 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, Phase 11.1 complete (all six milestones); Phase 12 is next.*
+*Last updated: 2026-11-10, v0.3.0 + Phase 12 (global prefix and URI versioning) implemented.*
 
 ## One-paragraph state
 
@@ -40,7 +40,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 610 tests (539 at Phase 11; +71 across Phase 11.1)
+- `cargo test --all-features` — pass, 625 tests (610 at Phase 11.1; +15 for Phase 12)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -96,8 +96,12 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
   resolution/termination, containment, dependency-edit equivalence);
   engineering record in
   `docs/phases/phase-11.1-resolver-completion.md`.
-- Next: Phase 12 (global prefix and URI versioning). See `ROADMAP.md`
-  and `PROGRESS.md` for detail.
+- Phase 12 done: static global prefix + URI versioning composed in the
+  route IR; bounded bootstrap discovery + `bootstrap` config key; exclude
+  rules, `@Version` precedence, `VERSION_NEUTRAL`, multi-version variants.
+  Record in `docs/phases/phase-12-global-prefix-versioning.md`.
+- Next: Phase 12 docs/version finishing, then Phase 13 (query/param DTOs).
+  See `ROADMAP.md` and `PROGRESS.md`.
 
 ## Phase 11 — remaining work (deferred to future phases)
 

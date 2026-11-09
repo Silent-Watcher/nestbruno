@@ -31,6 +31,7 @@ use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
 use crate::discovery::Matcher;
 use crate::error::Error;
+use crate::nest::app::BootstrapConfig;
 use crate::nest::extract::{MAX_SOURCE_BYTES, too_large};
 use crate::nest::{Analysis, analyze_sources_with_context};
 use crate::project::Project;
@@ -358,7 +359,13 @@ fn collect_snapshot(
         let in_scope = source_relative(&project_relative, config)
             .is_some_and(|source_relative| could_be_dependency(matcher, &source_relative))
             || project_relative == Path::new("tsconfig.json")
-            || project_relative == Path::new("package.json");
+            || project_relative == Path::new("package.json")
+            || crate::nest::app::CONVENTIONAL_BOOTSTRAP_FILES
+                .contains(&project_relative.to_str().unwrap_or(""))
+            || config
+                .bootstrap
+                .as_deref()
+                .is_some_and(|bootstrap| project_relative == Path::new(bootstrap));
         if !in_scope {
             continue;
         }
@@ -562,7 +569,44 @@ pub fn analyze_staged(project: &Project, staged: &Staged) -> Result<Analysis, Er
         snapshot: snapshot.clone(),
     });
     let mut context = ResolverContext::with_parts(provider, tsconfig, Vec::new());
-    analyze_sources_with_context(&staged.sources, project, &mut context)
+    let app = staged_bootstrap(project, staged);
+    analyze_sources_with_context(&staged.sources, project, &mut context, &app)
+}
+
+/// The staged bootstrap configuration: the bootstrap file read from the
+/// index snapshot, never the working tree.
+fn staged_bootstrap(project: &Project, staged: &Staged) -> BootstrapConfig {
+    let Some(snapshot) = &staged.index else {
+        return BootstrapConfig::default();
+    };
+    let configured = project.config().bootstrap.as_deref();
+    let candidate = configured.map(PathBuf::from).or_else(|| {
+        crate::nest::app::CONVENTIONAL_BOOTSTRAP_FILES
+            .iter()
+            .map(PathBuf::from)
+            .find(|candidate| snapshot.entries.contains_key(candidate))
+    });
+    let Some(candidate) = candidate else {
+        return BootstrapConfig::default();
+    };
+    let source = IndexProvider {
+        snapshot: snapshot.clone(),
+    }
+    .read(&candidate);
+    match source {
+        Ok(source) => crate::nest::app::analyze_bootstrap(&source, &candidate),
+        Err(_) => {
+            let mut config = BootstrapConfig::default();
+            if configured.is_some() {
+                config.diagnostics.push(Diagnostic::new(
+                    Severity::Warning,
+                    Some(candidate),
+                    "the configured bootstrap file is not readable from the index; global prefix and versioning are not applied",
+                ));
+            }
+            config
+        }
+    }
 }
 
 #[cfg(test)]

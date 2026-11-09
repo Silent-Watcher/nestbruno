@@ -20,6 +20,7 @@ use nestbruno::bruno::writer::write_collection;
 use nestbruno::config::Config;
 use nestbruno::discovery::{Matcher, discover_controllers};
 use nestbruno::nest::ProjectContext;
+use nestbruno::nest::app::BootstrapConfig;
 use nestbruno::nest::extract::extract_controllers;
 use nestbruno::project::Project;
 use nestbruno::resolve::ResolverContext;
@@ -122,6 +123,7 @@ fn analyze_one_run(
     matcher: &Matcher,
     sources: &[(String, String)],
 ) -> usize {
+    let app = BootstrapConfig::default();
     let mut resolver = ResolverContext::new(root);
     let mut controllers = 0;
     for (relative, source) in sources {
@@ -130,6 +132,7 @@ fn analyze_one_run(
             source_prefix: &config.source,
             config,
             matcher,
+            app: &app,
             resolver: &mut resolver,
         };
         let analysis = extract_controllers(Path::new(relative), source, Some(&mut project_context));
@@ -168,11 +171,13 @@ fn bench_extract_cross_file_dto(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("extract_cross_file");
     group.bench_function("1_controller_1_shared_dto", |bench| {
         bench.iter(|| {
+            let app = BootstrapConfig::default();
             let mut project_context = ProjectContext {
                 root: project.root(),
                 source_prefix: &config.source,
                 config: &config,
                 matcher: &matcher,
+                app: &app,
                 resolver: &mut ResolverContext::new(project.root()),
             };
             let analysis = extract_controllers(
@@ -189,11 +194,13 @@ fn bench_extract_cross_file_dto(criterion: &mut Criterion) {
     group.bench_function("1_controller_8_routes_shared_dto", |bench| {
         bench.iter(|| {
             let source = controller_with_dto_source(0, 8);
+            let app = BootstrapConfig::default();
             let mut project_context = ProjectContext {
                 root: project.root(),
                 source_prefix: &config.source,
                 config: &config,
                 matcher: &matcher,
+                app: &app,
                 resolver: &mut ResolverContext::new(project.root()),
             };
             let analysis = extract_controllers(

@@ -97,7 +97,14 @@ owner's semver rule; the shipped features (staged cross-file resolution,
 watch dependency invalidation, Zod completion, `#src` subpaths) justify
 the minor bump.
 
-## Phase 12 — Global prefix and URI versioning — Not Started
+## Phase 12 — Global prefix and URI versioning — Completed (2026-11-10)
+
+Static extraction of `setGlobalPrefix` and URI versioning composed in the
+route IR; bounded bootstrap discovery with an explicit `bootstrap` config
+key; exclude rules, method-level `@Version`, `VERSION_NEUTRAL` provenance,
+multi-version variants; non-URI strategies identified but never rendered as
+URL segments. Engineering record:
+[`docs/phases/phase-12-global-prefix-versioning.md`](docs/phases/phase-12-global-prefix-versioning.md).
 
 Static extraction of `app.setGlobalPrefix()` and `VersioningType.URI`
 versioning (application default, controller- and method-level

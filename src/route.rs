@@ -185,7 +185,8 @@ pub struct Route {
     /// The TypeScript method name.
     pub method_name: String,
     pub http_method: HttpMethod,
-    /// Full path: controller path composed with the route path.
+    /// Full path: global prefix and version segment (when applied)
+    /// composed with the controller path and the route path.
     pub path: RoutePath,
     pub parameters: Vec<RouteParameter>,
     /// Statically known request-body shape.

@@ -236,7 +236,7 @@ sync are linear in request count) are the durable claims. Reproduce with
 ## Limitations
 
 - Name-based decorator matching only; top-level classes only.
-- No global route prefix, URI versioning, or `RouterModule` path composition.
+- Static global prefix and URI versioning only; `RouterModule` path composition and dynamic bootstrap expressions are not modeled.
 - `@All`, array-valued paths, and path-to-regexp-style parameter patterns
   are extracted but not generated.
 - Staged sync resolves same-file DTOs only; watch mode does not yet

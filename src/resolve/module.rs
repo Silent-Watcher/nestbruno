@@ -274,6 +274,7 @@ mod tests {
             base_url: "{{baseUrl}}".into(),
             include: vec!["**/*.controller.ts".into()],
             exclude: vec!["**/dist/**".into(), "**/node_modules/**".into()],
+            bootstrap: None,
         };
         let matcher = Matcher::new(&config).unwrap();
 

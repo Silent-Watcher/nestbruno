@@ -61,6 +61,10 @@ pub struct Config {
     pub include: Vec<String>,
     /// Glob patterns removing files from the candidate set.
     pub exclude: Vec<String>,
+    /// The application bootstrap file (relative to the project root), where
+    /// `setGlobalPrefix` / `enableVersioning` live. Default: the conventional
+    /// `src/main.ts`, then `main.ts`.
+    pub bootstrap: Option<String>,
 }
 
 impl Default for Config {
@@ -74,6 +78,7 @@ impl Default for Config {
                 .iter()
                 .map(|dir| format!("**/{dir}/**"))
                 .collect(),
+            bootstrap: None,
         }
     }
 }

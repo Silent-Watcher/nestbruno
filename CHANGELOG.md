@@ -4,6 +4,25 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Global prefix and URI versioning** (Phase 12): effective route URLs
+  now include the statically analyzable `setGlobalPrefix` and
+  `VersioningType.URI` configuration read from the application bootstrap
+  (`src/main.ts` by default, or the new optional `bootstrap` key in
+  `nestbruno.toml`). Exclude rules (exact paths, trailing-`*` wildcards,
+  `{ path, method }` objects) keep matching routes unprefixed; patterns
+  that cannot be matched statically disable the prefix with a warning
+  instead of guessing. Versioning follows NestJS precedence
+  (`@Version` overrides `@Controller({ version })` overrides
+  `defaultVersion`), supports `VERSION_NEUTRAL` (provenance-checked), and
+  emits one request per declared version variant. HEADER and MEDIA_TYPE
+  strategies are identified but never rendered as URL segments. Projects
+  without a bootstrap configuration produce byte-identical output to
+  0.3.0.
+
 ## [0.3.0] — 2026-11-10
 
 Phase 11.1 — cross-file DTO resolver completion. All deferred Phase 11

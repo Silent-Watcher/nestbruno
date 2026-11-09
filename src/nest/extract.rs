@@ -55,13 +55,15 @@ use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     Argument, CallExpression, Class, ClassElement, Declaration, Decorator,
     ExportDefaultDeclarationKind, Expression, MethodDefinition, MethodDefinitionKind,
-    MethodDefinitionType, ObjectExpression, ObjectPropertyKind, Program, Statement, TSSignature,
+    MethodDefinitionType, ObjectExpression, ObjectPropertyKind, Program, PropertyKey, Statement,
+    TSSignature,
 };
 use oxc_parser::Parser;
 use oxc_span::{SourceType, Span};
 
 use crate::diag::{Diagnostic, Severity};
 use crate::nest::ProjectContext;
+use crate::nest::app::{BootstrapConfig, VersionAnnotation};
 use crate::resolve::limits::MAX_DTO_PROPERTIES;
 use crate::resolve::resolve_cross_file_dtos;
 use crate::route::{
@@ -123,12 +125,15 @@ pub fn extract_controllers(
         same_file_dtos.insert(name.clone(), props.clone());
     }
 
+    let app = project.as_deref().map(|project| project.app);
     let mut extractor = Extractor {
         file: Arc::from(file),
         source,
         lines: OnceCell::new(),
         diagnostics: Vec::new(),
         dtos: same_file_dtos_vec,
+        app,
+        nestjs_common: crate::nest::app::program_common_locals(&parsed.program),
     };
 
     if parsed.panicked || !parsed.errors.is_empty() {
@@ -307,7 +312,7 @@ enum PathArg {
     Dynamic(&'static str),
 }
 
-struct Extractor<'s> {
+struct Extractor<'s, 'a> {
     file: Arc<Path>,
     source: &'s str,
     /// Built on first use; most files never need it.
@@ -316,9 +321,15 @@ struct Extractor<'s> {
     /// Property names of every top-level class of the file, keyed by class
     /// name, for same-file body DTO resolution.
     dtos: Vec<(String, Vec<String>)>,
+    /// Statically analyzed bootstrap configuration (global prefix, URI
+    /// versioning). `None` without a project context.
+    app: Option<&'a BootstrapConfig>,
+    /// Local names bound to `@nestjs/common` imports of this file, for
+    /// `VERSION_NEUTRAL` provenance.
+    nestjs_common: HashMap<&'s str, &'s str>,
 }
 
-impl Extractor<'_> {
+impl Extractor<'_, '_> {
     fn finish(self, controllers: Vec<Controller>) -> FileAnalysis {
         FileAnalysis {
             controllers,
@@ -378,12 +389,17 @@ impl Extractor<'_> {
             }
         };
 
+        let controller_version = self.controller_version(call);
+
         let mut routes = Vec::new();
         for element in &class.body.body {
-            if let ClassElement::MethodDefinition(method) = element
-                && let Some(route) = self.route(&name, controller_path.as_deref(), method)
-            {
-                routes.push(route);
+            if let ClassElement::MethodDefinition(method) = element {
+                routes.extend(self.routes(
+                    &name,
+                    controller_path.as_deref(),
+                    &controller_version,
+                    method,
+                ));
             }
         }
 
@@ -397,25 +413,117 @@ impl Extractor<'_> {
         })
     }
 
-    /// Analyze one method; `None` when it is not a route.
-    fn route(
+    /// The controller-level `version` of the `@Controller` options object,
+    /// when statically known.
+    fn controller_version(&self, call: &CallExpression<'_>) -> VersionAnnotation {
+        let Some(options) = call
+            .arguments
+            .first()
+            .and_then(|argument| argument.as_expression())
+        else {
+            return VersionAnnotation::Unset;
+        };
+        let Expression::ObjectExpression(object) = options else {
+            return VersionAnnotation::Unset;
+        };
+        for property in object.properties.iter() {
+            let ObjectPropertyKind::ObjectProperty(property) = property else {
+                continue;
+            };
+            if property_key_name(&property.key) != Some("version") {
+                continue;
+            }
+            return self.version_annotation(&property.value);
+        }
+        VersionAnnotation::Unset
+    }
+
+    /// The method-level `@Version(...)` annotation, when statically known.
+    fn method_version(&self, method: &MethodDefinition<'_>) -> VersionAnnotation {
+        for decorator in &method.decorators {
+            let Some((name, call)) = decorator_call(decorator) else {
+                continue;
+            };
+            if name != "Version" {
+                continue;
+            }
+            let Some(argument) = call
+                .arguments
+                .first()
+                .and_then(|argument| argument.as_expression())
+            else {
+                continue;
+            };
+            return self.version_annotation(argument);
+        }
+        VersionAnnotation::Unset
+    }
+
+    /// A `version` annotation value: a static string, an array of them, or
+    /// the provenance-checked `VERSION_NEUTRAL` symbol. Anything else is
+    /// `Unset` (the conservative fallback: the app default applies).
+    fn version_annotation(&self, value: &Expression<'_>) -> VersionAnnotation {
+        match value {
+            Expression::StringLiteral(literal) => {
+                VersionAnnotation::Versions(vec![literal.value.to_string()])
+            }
+            Expression::ArrayExpression(array) => {
+                let mut versions = Vec::new();
+                let mut neutral = false;
+                for element in &array.elements {
+                    match element.as_expression().map(|e| string_literal_value(e)) {
+                        Some(Some(version)) => versions.push(version),
+                        Some(None) => {
+                            neutral = neutral
+                                || crate::nest::app::is_version_neutral_expr(
+                                    element.as_expression(),
+                                    &self.nestjs_common,
+                                );
+                        }
+                        None => {}
+                    }
+                }
+                if neutral {
+                    VersionAnnotation::Neutral
+                } else if versions.is_empty() {
+                    VersionAnnotation::Unset
+                } else {
+                    VersionAnnotation::Versions(versions)
+                }
+            }
+            _ => {
+                if crate::nest::app::is_version_neutral_expr(Some(value), &self.nestjs_common) {
+                    VersionAnnotation::Neutral
+                } else {
+                    VersionAnnotation::Unset
+                }
+            }
+        }
+    }
+
+    /// Analyze one method; `None` when it is not a route. One route per
+    /// declared version variant (NestJS URI versioning).
+    fn routes(
         &mut self,
         controller: &str,
         controller_path: Option<&str>,
+        controller_version: &VersionAnnotation,
         method: &MethodDefinition<'_>,
-    ) -> Option<Route> {
+    ) -> Vec<Route> {
         if method.kind != MethodDefinitionKind::Method
             || method.r#type != MethodDefinitionType::MethodDefinition
             || method.r#static
         {
-            return None;
+            return Vec::new();
         }
 
         let mut route_decorators = method.decorators.iter().filter_map(|decorator| {
             let (name, call) = decorator_call(decorator)?;
             Some((HttpMethod::from_decorator(name)?, decorator, call))
         });
-        let (http_method, decorator, call) = route_decorators.next()?;
+        let Some((http_method, decorator, call)) = route_decorators.next() else {
+            return Vec::new();
+        };
         let ignored = route_decorators.count();
 
         let Some(method_name) = method.key.static_name() else {
@@ -423,7 +531,7 @@ impl Extractor<'_> {
                 decorator.span,
                 format!("route in {controller} has a computed method name; it is skipped"),
             );
-            return None;
+            return Vec::new();
         };
         let method_name = method_name.into_owned();
 
@@ -488,14 +596,48 @@ impl Extractor<'_> {
 
         let body = self.resolve_body_shape(&parameters, body_param_type);
 
-        Some(Route {
-            method_name,
+        let build = |method_name: &str, path: RoutePath, _version: Option<String>| Route {
+            method_name: method_name.to_owned(),
             http_method,
             path,
-            parameters,
-            body,
+            parameters: parameters.clone(),
+            body: body.clone(),
             source: self.location(decorator.span),
-        })
+        };
+
+        // The path is unresolved (dynamic route path, or no controller
+        // path): no effective URL to compose.
+        if matches!(path, RoutePath::Unresolved) {
+            return vec![build(&method_name, path, None)];
+        }
+        let RoutePath::Static(local_path) = path else {
+            return vec![build(&method_name, path, None)];
+        };
+        // Effective URL: `/{prefix}/v{n}/{controller}/{method}` — the global
+        // prefix first, then the version segment. NestJS applies excludes to
+        // the path WITHOUT the prefix and the version.
+        let prefix_fragment: Vec<&str> = match self.app {
+            Some(app) if app.prefix_applies_to(&local_path, http_method) => {
+                vec![app.global_prefix.as_deref().unwrap_or_default()]
+            }
+            _ => vec![],
+        };
+        let method_version = self.method_version(method);
+        let version_segments = self
+            .app
+            .map(|app| app.version_segments(controller_version, &method_version))
+            .unwrap_or_default();
+        if version_segments.is_empty() {
+            let effective = compose_path(&[&prefix_fragment.join("/"), &local_path]);
+            return vec![build(&method_name, RoutePath::Static(effective), None)];
+        }
+        version_segments
+            .into_iter()
+            .map(|segment| {
+                let effective = compose_path(&[&prefix_fragment.join("/"), &segment, &local_path]);
+                build(&method_name, RoutePath::Static(effective), Some(segment))
+            })
+            .collect()
     }
 
     /// Resolve the statically known request-body shape for this route.
@@ -517,6 +659,23 @@ impl Extractor<'_> {
             }
         }
         BodyShape::Unknown
+    }
+}
+
+/// The string value of a plain string literal expression.
+fn string_literal_value(expression: &Expression<'_>) -> Option<String> {
+    match expression {
+        Expression::StringLiteral(literal) => Some(literal.value.to_string()),
+        _ => None,
+    }
+}
+
+/// The static name of an object property key.
+fn property_key_name<'a>(key: &'a PropertyKey<'a>) -> Option<&'a str> {
+    match key {
+        PropertyKey::StaticIdentifier(id) => Some(id.name.as_str()),
+        PropertyKey::StringLiteral(literal) => Some(literal.value.as_str()),
+        _ => None,
     }
 }
 

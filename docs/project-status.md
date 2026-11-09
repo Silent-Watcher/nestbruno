@@ -85,9 +85,10 @@
 - Decorators are matched **by name**; aliased imports, namespace imports
   (`common.Get`), custom decorators and array paths (`@Get(['a','b'])`) are
   not recognized or are reported as unresolved.
-- Only top-level classes are analyzed; controller inheritance, global
-  prefixes (`app.setGlobalPrefix`), versioning and `RouterModule` paths are
-  not modelled, so extracted paths can differ from the running application's.
+- Only top-level classes are analyzed; controller inheritance and
+  `RouterModule` paths are not modelled. Static global prefixes and URI
+  versioning ARE composed (Phase 12); dynamic bootstrap expressions are not,
+  so extracted paths can still differ from the running application's.
 - Sources over 256 KiB are skipped (reported as errors).
 - No field-level merge: any user edit locks the whole request (conflict if its
   route changes). `seq` is user-owned after creation.
