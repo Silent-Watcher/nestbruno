@@ -1,6 +1,6 @@
 [package]
 name = "nestbruno"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.91"
 description = "Incrementally synchronizes NestJS controllers into a Bruno API collection"
@@ -10,6 +10,19 @@ repository = "https://github.com/Silent-Watcher/nestbruno"
 keywords = ["nestjs", "bruno", "api", "sync", "cli"]
 categories = ["development-tools", "command-line-utilities"]
 publish = true
+# Keep the published crate lean: source, tests, benches and the mandatory
+# metadata files. The website, internal engineering docs and agent context
+# files live in the repository but are not part of the distributed package.
+include = [
+    "/src/**",
+    "/tests/**",
+    "/benches/**",
+    "/proptest-regressions/**",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE",
+]
 
 [lib]
 name = "nestbruno"
