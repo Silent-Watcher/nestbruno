@@ -17,6 +17,7 @@ exclude = [
   "**/.tmp/**",
   "**/.cache/**",
 ]
+# bootstrap = "src/main.ts"  # optional: where setGlobalPrefix/enableVersioning live
 ```
 
 ## Keys
@@ -28,6 +29,7 @@ exclude = [
 | `base_url` | string | `"<span v-pre>{{baseUrl}}</span>"` | no control characters; single line |
 | `include` | string list | `["**/*.controller.ts"]` | must not be empty; valid globs |
 | `exclude` | string list | dist / build / coverage / .tmp / .cache | valid globs |
+| `bootstrap` | path | `src/main.ts`, then `main.ts` (conventional candidates) | relative, no `..`; a configured file that does not exist is a warning |
 
 An invalid value (wrong type, `..`, absolute path, empty `include`, bad
 glob) is a configuration error: exit code 3.
@@ -42,6 +44,15 @@ glob) is a configuration error: exit code 3.
   `**/dist/**`) is not entered at all.
 - `.git` and `node_modules` are always skipped and cannot be re-enabled.
 - Only `.ts` files are candidates; `.d.ts`, `.tsx` and JavaScript are not.
+
+## Bootstrap discovery
+
+The bootstrap file is where `app.setGlobalPrefix(...)` and
+`app.enableVersioning(...)` are analyzed (see [Routes](/guide/routes)). By
+default the first conventional candidate that exists is used — `src/main.ts`,
+then `main.ts`. Set `bootstrap` to point at a different entry file; a
+configured file that is missing or unreadable is reported as a warning and
+no prefix or versioning is applied.
 
 Because matching is relative to `source`, a project that happens to live
 under a directory named `dist`, or a source subdirectory named `build`, is

@@ -26,35 +26,35 @@ must never execute the target application or imported source.
 
 ## Current task: no active phase
 
-Phase 11 (cross-file DTO resolution) is **complete, verified and shipped**
-in v0.2.0 (commits `d7bc701` and `3c0dbf5`). Phase 10 remains **OpenAPI
+Phases 11.1 (resolver completion), 12 (global prefix and URI versioning)
+and 13 (query/param DTO resolution) are **complete, verified and shipped**:
+v0.3.0, v0.4.0 and v0.5.0 (see `STATUS.md` and `docs/phases/
+phase-11.1-resolver-completion.md`, `phase-12-global-prefix-versioning.md`,
+`phase-13-query-param-dtos.md`). Phase 10 remains **OpenAPI
 interoperability** and has not started — do not begin it without owner
 authorization.
 
-Phase 11 accepted deferred edges (tracked in `KNOWN_ISSUES.md`, must not be
+Accepted edges that still apply (tracked in `KNOWN_ISSUES.md`, must not be
 silently changed):
 
-- Path containment for imported files is lexical only (no canonical
-  symlink validation).
-- The resolver cache is per route; dependency modules are parsed twice.
-- Watch Mode does not invalidate controllers on dependency-only changes.
-- Staged Sync resolves same-file DTOs only (no Git-index dependency
-  provider yet).
+- A validation/read race remains on concurrently modified dependency
+  trees (containment is enforced, but check and read are separate
+  operations; documented as defense in depth).
+- Watch Mode does not watch the bootstrap file: `setGlobalPrefix` /
+  `enableVersioning` edits need a watch restart.
 
-Owner-approved Phase 11 scope (for reference when touching the resolver):
-
-- Resolve dependencies on demand from imports of already-discovered
-  Controllers; never scan the whole source tree for DTOs.
-- Support local relative imports and limited `tsconfig` `baseUrl` / `paths`
-  (simple wildcard mappings), explicit/implicit `.ts`, and `index.ts`.
-- Do not traverse `node_modules` or resolve arbitrary packages.
-- Follow at most four re-export hops; detect cycles explicitly.
-- Support exported class/interface DTOs and a conservative Zod subset
-  (`z.object`, aliases, `z.infer`, imported schemas, statically recognizable
-  `createZodDto` with import provenance, and safe transformations).
-- Keep unsupported or ambiguous shapes as `BodyShape::Unknown`.
-- Keep dependency traversal bounded and Oxc ASTs short-lived. Preserve the
-  existing 64-property DTO limit.
+Resolver scope for reference when touching it: on-demand resolution from
+Controller imports only; relative imports (with NodeNext `.js`/`.mjs`/
+`.cjs` mapping), limited `tsconfig` `baseUrl`/`paths`, directory
+`index.ts`, and `package.json` `imports` local subpaths; no `node_modules`
+or arbitrary packages; four re-export hops with explicit cycle detection;
+exported class/interface DTOs plus the completed conservative Zod subset
+(provenance-checked `z.infer` incl. cross-file and forward references,
+multi-step chains, namespace `createZodDto`); unnamed `@Query()`/`@Param()`
+object parameters resolve like bodies. Keep unsupported or ambiguous
+shapes as `BodyShape::Unknown`; keep traversal bounded and Oxc ASTs
+short-lived; preserve the 64-property limit and the enforced budgets
+(reject-the-exceeding-operation).
 
 ## Current working tree
 

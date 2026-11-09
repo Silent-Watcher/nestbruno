@@ -199,6 +199,27 @@ holds something else. A staged `tsconfig.json` supplies `baseUrl`/`paths`
 mappings; symlink or non-regular index entries are rejected and degrade to
 the conservative unknown shape.
 
+## Query and param DTOs
+
+Unnamed `@Query()` and `@Param()` object parameters resolve through the
+same pipeline (same-file, cross-file, Zod, re-exports — everything above):
+
+- `@Query() query: FindUsersQueryDto` — the DTO's top-level properties
+  become **disabled, empty** query parameters (visible in Bruno, not sent),
+  deduplicated against named `@Query('page')` parameters.
+- `@Param() params: FindPostParamsDto` — path parameters keep coming from
+  the URL. DTO fields are matched against them; a DTO field that is not in
+  the path is documented on the request, and no placeholder is ever
+  invented.
+- Named `@Query('x') x` / `@Param('id') id` stay single named parameters —
+  never flattened.
+
+```ts
+@Get()
+findAll(@Query() query: FindUsersQueryDto) {}
+// → params:query { ~page:  ~limit:  ~search: } (disabled, empty)
+```
+
 ## Resource bounds
 
 Dependency traversal is bounded by internal constants (not configuration):

@@ -51,6 +51,17 @@
   `docs` block. Metadata changes update requests in place (identity
   unchanged); backward compatible with earlier output.
 
+- **Phase 12 (global prefix and URI versioning):** shipped in v0.4.0.
+  `setGlobalPrefix` and URI versioning are composed from the application
+  bootstrap (conventional `src/main.ts`/`main.ts` or the new optional
+  `bootstrap` key); exclude rules, method-level `@Version`,
+  `VERSION_NEUTRAL` (provenance-checked) and multi-version variants are
+  supported; HEADER/MEDIA_TYPE strategies are identified but never appear
+  in URLs. Without a bootstrap configuration the output is unchanged.
+- **Phase 13 (query/param DTO resolution):** shipped in v0.5.0. Unnamed
+  `@Query()` objects produce disabled, empty query parameters
+  (deduplicated against named ones); unnamed `@Param()` objects are matched
+  against URL-derived path parameters — no placeholders invented.
 - **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
   v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
   paths (including NodeNext `.js`/`.mjs`/`.cjs` specifier extensions),

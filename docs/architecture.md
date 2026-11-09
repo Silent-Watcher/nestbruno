@@ -206,6 +206,12 @@ cache with the controller file's already-parsed program (`src/resolve/
 containment.rs` gates every dependency read on canonical-root, symlink-free,
 regular-file containment).
 
+Route URLs are the effective URLs: the statically analyzable application
+bootstrap (global prefix, URI-versioning segments — `src/nest/app.rs`) is
+composed in the extractor, and unnamed `@Query()`/`@Param()` object DTOs
+resolve through the same cross-file resolver (query fields become disabled
+query parameters; path parameters stay URL-derived).
+
 Known deferred edges (tracked in `KNOWN_ISSUES.md`): the validation/read
 race on concurrently modified trees. Watch Mode dependency invalidation and
 Git-index-only staged dependency resolution shipped on 2026-11-10

@@ -27,6 +27,7 @@ export default defineConfig({
             { text: 'Commands', link: '/guide/commands' },
             { text: 'Configuration', link: '/guide/configuration' },
             { text: 'DTO Resolution', link: '/guide/dto-resolution' },
+            { text: 'Prefix & Versioning', link: '/guide/routes' },
             { text: 'Synchronization Model', link: '/guide/synchronization' },
             { text: 'Watch Mode', link: '/guide/watch-mode' },
             { text: 'Safety & Ownership', link: '/guide/safety' },

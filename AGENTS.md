@@ -13,9 +13,12 @@ repeating past mistakes or past investigation.
 4. `ROADMAP.md` — what comes next.
 5. `KNOWN_ISSUES.md` — verified problems and documentation drift.
 6. `DECISIONS.md` — decisions you must not silently reverse.
-7. The authoritative prompt for the phase you are implementing. For
-   completed Phase 11, the owner-approved decisions are summarized in
-   `docs/phases/phase-11-cross-file-dto-resolution.md`.
+7. The authoritative prompt for the phase you are implementing. Completed
+   phases have engineering records in `docs/phases/` (Phase 11 decisions in
+   `phase-11-cross-file-dto-resolution.md`; the 11.1 completion, prefix/
+   versioning and query/param work in `phase-11.1-resolver-completion.md`,
+   `phase-12-global-prefix-versioning.md`,
+   `phase-13-query-param-dtos.md`).
 8. The phase documents in `docs/phases/` for everything already built and the
    canonical handoff for the active phase.
 

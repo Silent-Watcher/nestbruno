@@ -43,7 +43,10 @@ repository and fast enough for watch mode.
 - [Getting Started](/guide/getting-started) — install and first sync.
 - [Commands](/guide/commands) — every command and exit code.
 - [Configuration](/guide/configuration) — `nestbruno.toml` reference.
-- [DTO Resolution](/guide/dto-resolution) — same-file, cross-file and Zod body skeletons.
+- [DTO Resolution](/guide/dto-resolution) — same-file, cross-file and Zod
+  body skeletons, plus query/param DTO resolution.
+- [Prefix & Versioning](/guide/routes) — effective URLs from the static
+  global prefix and URI-versioning configuration.
 - [Synchronization](/guide/synchronization) — what sync creates, updates, deletes and refuses to touch.
 - [Watch Mode](/guide/watch-mode) — live synchronization while you code.
 - [Safety & Ownership](/guide/safety) — the guarantees, in detail.
