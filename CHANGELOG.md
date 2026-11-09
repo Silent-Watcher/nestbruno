@@ -4,9 +4,22 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] — 2026-11-10
+
+Phase 14 (CLI & CI developer experience) and the Explain command.
 
 ### Added
+
+- **Explain command** (`nestbruno explain <SELECTOR>`): explains how the
+  analyzer discovered and interpreted one route — selector by
+  `"METHOD /path"` or `--controller`/`--handler`, optional `--file`
+  restriction, human-readable report and `--format json`. The resolution
+  section derives the controller prefix, global prefix application, URI
+  version segment and handler path fragment from the existing analysis
+  results and the bootstrap configuration; fragments that cannot be split
+  off exactly are reported as limitations, never guessed. Missing routes
+  exit 1 (with all candidates when ambiguous), malformed selectors exit 2,
+  incomplete analysis exits 4.
 
 - **GitHub Actions verification workflow template** (Phase 14.4): a
   documented, copyable workflow (`website/guide/github-actions.md`, linked

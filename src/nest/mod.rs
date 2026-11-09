@@ -334,7 +334,10 @@ fn guarded<T>(work: impl FnOnce() -> T) -> Result<T, String> {
 /// configured file or the first conventional candidate, read with the
 /// regular-file rules. A missing conventional file is normal (no prefix, no
 /// versioning); a configured file that cannot be read warns once.
-fn bootstrap_for(project: &Project) -> BootstrapConfig {
+///
+/// `pub(crate)` so `explain` can present the same configuration the
+/// analysis run used (never re-derives it differently).
+pub(crate) fn bootstrap_for(project: &Project) -> BootstrapConfig {
     let configured = project.config().bootstrap.as_deref();
     match find_bootstrap_source(project, configured) {
         Ok(Some((relative, source))) => {

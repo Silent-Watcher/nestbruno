@@ -49,6 +49,24 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
             staged: staged_only,
             format,
         } => verify_command(cli, *staged_only, *format, out, reporter),
+        Command::Explain {
+            selector,
+            controller,
+            handler,
+            file,
+            format,
+        } => explain_command(
+            cli,
+            ExplainQuery {
+                selector: selector.as_ref(),
+                controller: controller.as_deref(),
+                handler: handler.as_deref(),
+                file: file.as_deref(),
+            },
+            *format,
+            out,
+            reporter,
+        ),
         Command::Completions { shell } => {
             let mut command = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(*shell, &mut command, "nestbruno", out);
@@ -682,6 +700,244 @@ fn write_verify_report(
         _ => writeln!(out, "No relevant staged NestJS changes; nothing to verify.")?,
     }
     writeln!(out, "The collection was not modified.")
+}
+
+/// What `explain` was asked to look for (the CLI selector inputs).
+struct ExplainQuery<'a> {
+    selector: Option<&'a crate::explain::RouteSelector>,
+    controller: Option<&'a str>,
+    handler: Option<&'a str>,
+    file: Option<&'a std::path::Path>,
+}
+
+/// explain ─▶ (the same analysis pipeline as `routes`) ─▶ select ─▶ report.
+///
+/// Strictly read-only: it explains the analyzer's findings, it never touches
+/// the collection or the sources.
+fn explain_command(
+    cli: &Cli,
+    query: ExplainQuery<'_>,
+    format: OutputFormat,
+    out: &mut dyn Write,
+    reporter: &Reporter,
+) -> Result<Outcome, Error> {
+    let ExplainQuery {
+        selector,
+        controller,
+        handler,
+        file,
+    } = query;
+    // clap already enforces "selector or handler"; the explicit guard keeps
+    // the contract independent of clap configuration.
+    let selector = selector.cloned().or_else(|| {
+        handler.map(|handler| crate::explain::RouteSelector::Handler {
+            controller: controller.map(str::to_owned),
+            handler: handler.to_owned(),
+        })
+    });
+    let Some(selector) = selector else {
+        return Err(Error::Usage {
+            message: "explain needs a route selector: \"METHOD /path\", or --handler (optionally with --controller)"
+                .to_owned(),
+        });
+    };
+
+    let project = open_project(cli, reporter)?;
+    let discovery = discover_controllers(&project)?;
+    let analysis = analyze_files(&project, &discovery.files)?;
+    let complete = !discovery.is_incomplete() && !analysis.is_incomplete();
+
+    for diagnostic in discovery.diagnostics.iter().chain(&analysis.diagnostics) {
+        reporter.report(diagnostic);
+    }
+
+    let matches = crate::explain::find_matches(&analysis.controllers, &selector, file);
+    match matches.as_slice() {
+        [(controller, route)] => {
+            let bootstrap = crate::nest::bootstrap_for(&project);
+            let explanation = crate::explain::build_explanation(
+                controller,
+                route,
+                &bootstrap,
+                &analysis.diagnostics,
+                complete,
+            );
+            match format {
+                OutputFormat::Text => {
+                    write_explain_report(out, &explanation).map_err(Error::Output)?
+                }
+                OutputFormat::Json => {
+                    output::write_json(out, &output::Explain::from_explanation(&explanation))?
+                }
+            }
+        }
+        [] => {
+            if format == OutputFormat::Json {
+                output::write_json(out, &output::Explain::unmatched(Vec::new(), complete))?;
+            }
+            return Err(Error::RouteNotFound {
+                selector: selector.to_string(),
+            });
+        }
+        many => {
+            let entries: Vec<output::RouteEntry> = many
+                .iter()
+                .map(|(controller, route)| output::RouteEntry::of(&controller.name, route))
+                .collect();
+            if format == OutputFormat::Json {
+                output::write_json(out, &output::Explain::unmatched(entries.clone(), complete))?;
+            }
+            let list = many
+                .iter()
+                .map(|(controller, route)| {
+                    format!(
+                        "{} {} ({}.{} at {})",
+                        route.http_method,
+                        route.path,
+                        controller.name,
+                        route.method_name,
+                        route.source
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(Error::AmbiguousRoutes {
+                selector: selector.to_string(),
+                count: many.len(),
+                list,
+            });
+        }
+    }
+    Ok(if complete {
+        Outcome::Success
+    } else {
+        Outcome::Incomplete
+    })
+}
+
+/// Human-readable explanation: identification, derived resolution, the
+/// metadata the analyzer holds, the findings checklist and the diagnostics.
+fn write_explain_report(
+    out: &mut dyn Write,
+    explanation: &crate::explain::Explanation,
+) -> std::io::Result<()> {
+    use crate::route::{BodyShape, RoutePath};
+
+    let route = &explanation.route;
+    let resolution = &explanation.resolution;
+    writeln!(out, "Route Explanation")?;
+    writeln!(out)?;
+    writeln!(
+        out,
+        "Route:      {} {}",
+        route.http_method.as_str(),
+        route.path
+    )?;
+    writeln!(out, "Controller: {}", explanation.controller_name)?;
+    writeln!(out, "Handler:    {}", route.method_name)?;
+    writeln!(out, "Source:     {}", route.source)?;
+    writeln!(out)?;
+    writeln!(out, "Resolution:")?;
+    let labeled = |label: &str, value: Option<&str>| match value {
+        Some(value) => format!("  {label:<18} {value}"),
+        None => format!("  {label:<18} <unknown>"),
+    };
+    writeln!(
+        out,
+        "{}",
+        labeled(
+            "Controller prefix:",
+            resolution.controller_prefix.as_deref(),
+        )
+    )?;
+    writeln!(
+        out,
+        "{}",
+        match &resolution.global_prefix {
+            Some(prefix) => format!(
+                "  {:<18} {prefix} ({})",
+                "Global prefix:",
+                if resolution.prefix_applied {
+                    "applied"
+                } else {
+                    "not applied"
+                }
+            ),
+            None => format!(
+                "  {:<18} none (no statically provable setGlobalPrefix)",
+                "Global prefix:"
+            ),
+        }
+    )?;
+    match &resolution.version_segment {
+        Some(version) => writeln!(out, "  {:<18} {version}", "Version segment:")?,
+        None => writeln!(out, "  {:<18} none", "Version segment:")?,
+    }
+    writeln!(
+        out,
+        "{}",
+        labeled("Handler path:", resolution.handler_path.as_deref())
+    )?;
+    match &route.path {
+        RoutePath::Static(path) => writeln!(out, "  {:<18} {path}", "Final route:")?,
+        RoutePath::Unresolved => writeln!(out, "  {:<18} <unresolved>", "Final route:")?,
+    }
+    for limitation in &explanation.limitations {
+        writeln!(out, "  Note: {limitation}")?;
+    }
+    writeln!(out)?;
+    writeln!(out, "Metadata:")?;
+    if route.parameters.is_empty() {
+        writeln!(out, "  Parameters: none")?;
+    } else {
+        writeln!(out, "  Parameters:")?;
+        for parameter in &route.parameters {
+            let name = match &parameter.name {
+                ParameterName::Unnamed => "()".to_owned(),
+                ParameterName::Named(name) => format!("({name})"),
+                ParameterName::Unresolved => "(<unresolved>)".to_owned(),
+            };
+            let mut line = format!(
+                "    - @{}{name} #{}",
+                parameter.kind.as_str(),
+                parameter.index
+            );
+            if let Some(type_name) = &parameter.type_name {
+                line.push_str(&format!(" ({type_name})"));
+            }
+            if !parameter.fields.is_empty() {
+                line.push_str(&format!(" [fields: {}]", parameter.fields.join(", ")));
+            }
+            writeln!(out, "{line}")?;
+        }
+    }
+    writeln!(
+        out,
+        "  Body: {}",
+        match &route.body {
+            BodyShape::None => "none".to_owned(),
+            BodyShape::Unknown => "unknown (could not be resolved statically)".to_owned(),
+            BodyShape::Fields(fields) => format!("fields: {}", fields.join(", ")),
+        }
+    )?;
+    writeln!(out)?;
+    writeln!(out, "Analysis:")?;
+    for step in &explanation.trace {
+        match &step.detail {
+            Some(detail) => writeln!(out, "  - {}: {detail}", step.finding)?,
+            None => writeln!(out, "  - {}", step.finding)?,
+        }
+    }
+    writeln!(out)?;
+    writeln!(out, "Warnings:")?;
+    if explanation.warnings.is_empty() {
+        writeln!(out, "  None")?;
+    } else {
+        for diagnostic in &explanation.warnings {
+            writeln!(out, "  {diagnostic}")?;
+        }
+    }
+    Ok(())
 }
 
 /// Run watch mode until Ctrl-C (or SIGTERM).

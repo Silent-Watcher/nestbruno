@@ -151,6 +151,17 @@ the usual semver process when the owner releases).
   (`contents: read`, `cargo install nestbruno --locked`,
   `nestbruno verify`); workflow-template scope, not a Marketplace Action.
 
+## Phase 15 — Explain command — Completed (2026-11-10)
+
+Owner-approved master prompt (2026-11-10), implemented as approved
+("Option A": reuse the analysis results, no IR changes): `nestbruno
+explain` selects one route by `METHOD /path` or `--controller`/`--handler`
+and explains identification, path resolution (derived from the composed
+path and the bootstrap configuration, with unprovable fragments reported
+as limitations), extracted metadata, the findings checklist and the
+diagnostics of the controller's file. JSON output follows the Phase 14
+`--format json` contract. Version bumped to 0.6.0.
+
 ## Cross-phase notes
 
 - Phase 6 documents a measurement-motivated candidate (restrict watch

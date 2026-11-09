@@ -8,12 +8,15 @@
 use std::path::PathBuf;
 
 /// Exit codes used by the CLI. `2` is reserved for usage errors, which clap
-/// reports itself.
+/// reports itself (and which manual argument validation mirrors).
 pub mod exit_code {
     /// Unspecified runtime failure (I/O, output serialization). `verify`
     /// also uses this code when the collection is out of sync (CI failure
-    /// signal, distinct from the "incomplete" code 4).
+    /// signal, distinct from the "incomplete" code 4), and `explain` when no
+    /// route matches the selector.
     pub const FAILURE: u8 = 1;
+    /// Usage errors (clap, or a rejected command-argument combination).
+    pub const USAGE: u8 = 2;
     /// The configuration or the project layout is invalid.
     pub const CONFIG: u8 = 3;
     /// The command finished, but some paths could not be processed (see the
@@ -95,6 +98,21 @@ pub enum Error {
     )]
     GitNotARepository { start: PathBuf },
 
+    #[error("no route matches {selector}")]
+    RouteNotFound { selector: String },
+
+    #[error(
+        "{count} routes match {selector}; narrow the selection with --file or use --controller/--handler. Matching routes: {list}"
+    )]
+    AmbiguousRoutes {
+        selector: String,
+        count: usize,
+        list: String,
+    },
+
+    #[error("{message}")]
+    Usage { message: String },
+
     #[error(
         "cannot read the git repository at {}: {message}",
         repo.display()
@@ -120,7 +138,10 @@ impl Error {
             | Self::Watch(_)
             | Self::AlreadyExists { .. }
             | Self::GitNotARepository { .. }
-            | Self::GitRepository { .. } => exit_code::FAILURE,
+            | Self::GitRepository { .. }
+            | Self::RouteNotFound { .. }
+            | Self::AmbiguousRoutes { .. } => exit_code::FAILURE,
+            Self::Usage { .. } => exit_code::USAGE,
         }
     }
 }

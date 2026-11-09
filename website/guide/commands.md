@@ -7,6 +7,53 @@ Global flags (usable with every command):
 | `-C, --project <DIR>` | use this directory as the project root instead of searching upwards |
 | `-v, --verbose` | also print `note:`-level diagnostics |
 
+## `nestbruno explain <SELECTOR>`
+
+Explains how the analyzer discovered and interpreted **one route** — the
+same analysis pipeline as `routes`, presented as a diagnosis. Strictly
+read-only; it never touches the collection or the sources.
+
+Two selector forms:
+
+```bash
+nestbruno explain "GET /users/:id"
+nestbruno explain --controller UsersController --handler findOne
+```
+
+- `METHOD /path`: method is case-insensitive (`GET`, `POST`, `PUT`,
+  `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `ALL`); the path is matched
+  exactly against the composed route path (leading slash optional).
+- `--handler` selects by TypeScript method name; `--controller` narrows it
+  to one class. A handler name that exists in several controllers is
+  **ambiguous**: every candidate is listed (exit 1) instead of guessing.
+- `--file src/users/users.controller.ts` restricts the lookup to one
+  source file (project-relative).
+- `--format json` prints one JSON document (the Phase 14 contract): `found`,
+  `complete`, `route`, `resolution`, `parameters`, `body`, `limitations`,
+  `trace`, `matches`, `diagnostics`.
+
+The report shows:
+
+- **Route / Controller / Handler / Source** — the identified route with its
+  decorator location.
+- **Resolution** — how the final path was assembled: the controller prefix,
+  the statically provable global prefix (and whether it was applied or
+  excluded), the URI version segment, and the handler's own path fragment,
+  derived from the composed path using the same composition rules the
+  extractor applies. A fragment that cannot be split off exactly is shown
+  as `<unknown>` with a `Note:` — never guessed.
+- **Metadata** — the extracted parameters (kind, name, index, type
+  annotation, resolved DTO fields) and the request-body shape.
+- **Analysis** — the findings checklist; each line states evidence that
+  exists in the analysis result.
+- **Warnings** — the diagnostics of the controller's file plus the
+  bootstrap warnings, severity preserved.
+
+Exit codes: 0 when the route was found, 1 when no route matches or the
+selector is ambiguous (candidates on stderr; with `--format json` the
+document is still printed with `found: false`), 2 for a malformed selector
+or `--controller` without `--handler`, 4 when the analysis is incomplete.
+
 ## JSON output
 
 `discover`, `routes` and `sync` accept `--format json` and print **exactly

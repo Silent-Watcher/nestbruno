@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
+use crate::explain::RouteSelector;
+
 /// Output format of a command that produces structured results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
@@ -77,6 +79,32 @@ pub enum Command {
         /// instead of the working tree.
         #[arg(long)]
         staged: bool,
+        /// Select the output format.
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+    },
+    /// Explain how the analyzer discovered and interpreted one route.
+    ///
+    /// The route is selected either as `"METHOD /path"` (e.g.
+    /// `"GET /users/:id"`) or by `--handler` (optionally together with
+    /// `--controller`). Nothing is written to the collection.
+    Explain {
+        /// Route selector: `METHOD /path`, e.g. `"GET /users/:id"`.
+        #[arg(
+            value_name = "SELECTOR",
+            value_parser = crate::explain::parse_method_path,
+            required_unless_present = "handler"
+        )]
+        selector: Option<RouteSelector>,
+        /// The controller class name; used together with `--handler`.
+        #[arg(long, value_name = "CLASS", requires = "handler")]
+        controller: Option<String>,
+        /// The handler (TypeScript method) name.
+        #[arg(long, value_name = "NAME", required_unless_present = "selector")]
+        handler: Option<String>,
+        /// Restrict the lookup to this source file (project-relative).
+        #[arg(long, value_name = "FILE")]
+        file: Option<PathBuf>,
         /// Select the output format.
         #[arg(long, value_enum, default_value = "text")]
         format: OutputFormat,

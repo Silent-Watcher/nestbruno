@@ -462,8 +462,49 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
 Owner-authorized master prompt: four milestones (JSON output, read-only
 verify, shell completions, GitHub Actions workflow template), one commit
 each, no version bump and no releases during this phase (explicit prompt
-rule). All four milestones are complete; final audit pending release
-bookkeeping (0.6.0 or later per semver when the owner chooses to release).
+rule). All four milestones are complete and committed
+(`27c34a4`, `64ab454`, `26f3974`, `e7c71ea`).
+
+### Phase 15 — Explain command (completed 2026-11-10)
+
+Owner-approved master prompt (approval received for "Option A": reuse the
+analysis results, no IR changes). Version bump to 0.6.0 per the
+semver-per-phase rule (covers the unreleased Phase 14 features as well).
+Not committed: the master prompt forbids commits unless explicitly
+requested.
+
+- `src/explain.rs` (new): `RouteSelector` parsing (`METHOD /path` via a
+  clap value parser; case-insensitive method, composed-path
+  normalization), route matching (exact method+path or
+  controller/handler, optional file restriction with `./`-normalization),
+  and the `Explanation` model: identification, derived `Resolution`,
+  `limitations`, an honest findings checklist and the diagnostics of the
+  controller's file plus the bootstrap warnings (which were previously
+  computed but never surfaced).
+- Resolution derivation (the one non-trivial part): the composed path is
+  split back into `global prefix? / version? / controller path / handler
+  path` using the same composition rules as the extractor
+  (`compose_path` segment arithmetic); every candidate split is verified
+  against `BootstrapConfig::prefix_applies_to` (exclude rules included)
+  and `v<n>` version segments. Zero or several consistent splits become a
+  limitation, never a guess. `nest::bootstrap_for` is now `pub(crate)`
+  so explain uses the exact configuration of the analysis run.
+- CLI: `nestbruno explain` with positional `"METHOD /path"`,
+  `--controller`/`--handler` (clap `requires`/`required_unless_present`
+  enforce the combination), `--file`, `--format json` (Phase 14
+  convention, not a new `--json` flag). Errors: `Error::RouteNotFound` /
+  `AmbiguousRoutes` (exit 1, candidates listed) and `Error::Usage` (exit
+  2, new `exit_code::USAGE`); JSON mode prints the `found: false`
+  document before the error.
+- Tests: 14 unit (`src/explain.rs`: selector parsing, matching,
+  ambiguity, derivation with prefix/exclude/version bootstrap fixtures,
+  unresolved paths, trace content) + 14 integration (`tests/explain.rs`:
+  full report, method/DTO metadata, bootstrap prefix+versioning, dynamic
+  paths, missing/ambiguous selectors, usage errors, JSON validity and
+  determinism, stdout/stderr separation). Gates: fmt + clippy
+  `-D warnings` clean; 690 tests pass (was 662).
+- Docs: CHANGELOG (0.6.0), STATUS, ROADMAP, `docs/project-status.md`,
+  `DECISIONS.md` (rows 28–30), `website/guide/commands.md`.
 
 #### Milestone 14.1 — Machine-readable JSON output (completed 2026-11-10)
 

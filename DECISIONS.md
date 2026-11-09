@@ -36,6 +36,7 @@ requires a concrete reason recorded next to the phase doc.
 | 27 | All resolver budgets share reject-the-exceeding-operation semantics; `MAX_IMPORT_EDGES` and `MAX_DTO_DECLARATIONS` are enforced, not advisory | Phase 11.1, `resolve/limits.rs` | no partially tracked state is ever published; budget exhaustion degrades to `BodyShape::Unknown` |
 | 28 | `verify` is the sync pipeline run as a dry run plus reporting — no second reconciliation algorithm; drift exits 1 by reusing the existing `FAILURE` code, conflicts/incompleteness exit 4 (Phase 14.2, `commands.rs`) | one code path cannot diverge from sync's guarantees; no invented exit codes (master-prompt rule); CI needs only "non-zero" |
 | 29 | JSON output is a presentation layer of DTOs built from the existing results (`output.rs`), never a second result model | Phase 14.1 | no duplicated business logic; documents stay consistent with sync/verify semantics |
+| 30 | `explain` derives route resolution by splitting the composed path with the extractor's composition rules and verifies every split against the bootstrap configuration; unprovable fragments become limitations, not guesses (no IR extension) | Phase 15, `explain.rs` | the analyzer stays untouched; the explanation can only claim what the stored results prove |
 
 ## Deliberately *not* decided / open
 

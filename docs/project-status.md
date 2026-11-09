@@ -75,6 +75,10 @@
   shipped: a documented GitHub Actions workflow template
   ([website guide](../../website/guide/github-actions.md)) running
   `nestbruno verify` on Pull Requests with read-only permissions.
+- **Phase 15 (Explain command):** shipped. `nestbruno explain` explains
+  one route's identification, path resolution, metadata and warnings from
+  the existing analysis results (no second analyzer); unprovable
+  resolution fragments are reported as limitations, never guesses.
 - **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
   v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
   paths (including NodeNext `.js`/`.mjs`/`.cjs` specifier extensions),
@@ -104,6 +108,7 @@
 | `sync --staged [--dry-run]` | Works: the same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git. `--format json` (14.1) on discover/routes/sync: one JSON document on stdout. |
 | `verify [--staged]` | Works (14.2): read-only drift check reusing the sync pipeline as a dry run; exit 0 in sync, 1 out of sync (CI), 4 conflicts/incomplete; never creates or modifies anything. |
 | `completions <shell>` | Works (14.3): prints a Bash/Zsh/Fish/PowerShell completion script to stdout; installs nothing. |
+| `explain <SELECTOR>` | Works (Phase 15): explains one route (selector by `METHOD /path` or `--controller`/`--handler`, optional `--file`); read-only; exit 0 found / 1 missing-or-ambiguous / 2 usage / 4 incomplete. |
 | `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
 
 ## Current limitations

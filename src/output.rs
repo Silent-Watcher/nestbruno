@@ -19,6 +19,7 @@ use serde::Serialize;
 use crate::diag::{Diagnostic, Severity};
 use crate::discovery::Discovery;
 use crate::error::Error;
+use crate::explain::{Explanation, Resolution};
 use crate::route::{BodyShape, Controller, ParameterKind, ParameterName, Route, RoutePath};
 use crate::staged::{StagedChange, StagedStatus};
 use crate::sync::SyncResult;
@@ -54,8 +55,8 @@ impl Routes {
     }
 }
 
-/// One route of [`Routes`].
-#[derive(Serialize)]
+/// One route of [`Routes`] / [`Explain`].
+#[derive(Clone, Serialize)]
 pub struct RouteEntry {
     pub controller: String,
     pub handler: String,
@@ -67,9 +68,13 @@ pub struct RouteEntry {
 }
 
 impl RouteEntry {
-    fn new(controller: &Controller, route: &Route) -> Self {
+    pub fn new(controller: &Controller, route: &Route) -> Self {
+        Self::of(&controller.name, route)
+    }
+
+    pub fn of(controller_name: &str, route: &Route) -> Self {
         Self {
-            controller: controller.name.clone(),
+            controller: controller_name.to_owned(),
             handler: route.method_name.clone(),
             method: route.http_method.as_str(),
             path: match &route.path {
@@ -85,7 +90,7 @@ impl RouteEntry {
 
 /// A decorated handler parameter. `name` matches the human presentation:
 /// empty for the whole-object form, `<unresolved>` for a non-literal key.
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ParameterEntry {
     pub kind: &'static str,
     pub name: String,
@@ -96,7 +101,7 @@ pub struct ParameterEntry {
 }
 
 impl ParameterEntry {
-    fn new(parameter: &crate::route::RouteParameter) -> Self {
+    pub fn new(parameter: &crate::route::RouteParameter) -> Self {
         let kind = match parameter.kind {
             ParameterKind::Param => "param",
             ParameterKind::Query => "query",
@@ -120,7 +125,7 @@ impl ParameterEntry {
 
 /// The statically known request-body shape. `{"shape": "none"}`,
 /// `{"shape": "unknown"}` or `{"shape": "fields", "fields": [...]}`.
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(tag = "shape", content = "fields", rename_all = "snake_case")]
 pub enum BodyEntry {
     None,
@@ -139,7 +144,7 @@ impl From<&BodyShape> for BodyEntry {
 }
 
 /// A position in a source file (1-based line and column).
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct SourceEntry {
     pub file: String,
     pub line: u32,
@@ -370,6 +375,94 @@ pub struct VerifyChanges {
     pub created: Vec<String>,
     pub updated: Vec<String>,
     pub deleted: Vec<String>,
+}
+
+/// `explain --format json` (Phase 15). `found` is `false` when the selector
+/// matched nothing (`matches` empty) or several routes (`matches` holds all
+/// of them, so the caller can refine the selection); the error message goes
+/// to stderr in both cases.
+#[derive(Serialize, Default)]
+pub struct Explain {
+    pub found: bool,
+    pub complete: bool,
+    pub route: Option<RouteEntry>,
+    pub resolution: Option<ExplainResolution>,
+    pub parameters: Vec<ParameterEntry>,
+    pub body: Option<BodyEntry>,
+    /// Informational boundaries met while deriving the explanation.
+    pub limitations: Vec<String>,
+    pub trace: Vec<TraceStepEntry>,
+    pub matches: Vec<RouteEntry>,
+    pub diagnostics: Vec<JsonDiagnostic>,
+}
+
+impl Explain {
+    /// Build the document for one explained route.
+    pub fn from_explanation(explanation: &Explanation) -> Self {
+        let route = &explanation.route;
+        Self {
+            found: true,
+            complete: explanation.complete,
+            route: Some(RouteEntry::of(&explanation.controller_name, route)),
+            resolution: Some(ExplainResolution::from(&explanation.resolution)),
+            parameters: route.parameters.iter().map(ParameterEntry::new).collect(),
+            body: Some(BodyEntry::from(&route.body)),
+            limitations: explanation.limitations.clone(),
+            trace: explanation
+                .trace
+                .iter()
+                .map(|step| TraceStepEntry {
+                    finding: step.finding.clone(),
+                    detail: step.detail.clone(),
+                })
+                .collect(),
+            matches: Vec::new(),
+            diagnostics: diagnostics_from(&explanation.warnings),
+        }
+    }
+
+    /// Build the document for an unmatched or ambiguous selector.
+    pub fn unmatched(matches: Vec<RouteEntry>, complete: bool) -> Self {
+        Self {
+            found: false,
+            complete,
+            matches,
+            ..Self::default()
+        }
+    }
+}
+
+/// The derived route resolution of [`Explain`]. `None` fields are unknown,
+/// never guessed.
+#[derive(Serialize)]
+pub struct ExplainResolution {
+    pub controller_prefix: Option<String>,
+    pub handler_path: Option<String>,
+    pub final_path: Option<String>,
+    pub global_prefix: Option<String>,
+    pub prefix_applied: bool,
+    pub version_segment: Option<String>,
+}
+
+impl From<&Resolution> for ExplainResolution {
+    fn from(resolution: &Resolution) -> Self {
+        Self {
+            controller_prefix: resolution.controller_prefix.clone(),
+            handler_path: resolution.handler_path.clone(),
+            final_path: resolution.final_path.clone(),
+            global_prefix: resolution.global_prefix.clone(),
+            prefix_applied: resolution.prefix_applied,
+            version_segment: resolution.version_segment.clone(),
+        }
+    }
+}
+
+/// One finding of the analysis trace in [`Explain`].
+#[derive(Serialize)]
+pub struct TraceStepEntry {
+    pub finding: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// A [`Diagnostic`] as a structured object.

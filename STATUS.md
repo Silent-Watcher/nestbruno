@@ -1,15 +1,14 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, v0.5.0 + Phase 14 complete (JSON output, verify, completions, CI workflow template).*
+*Last updated: 2026-11-10, v0.6.0 (Phase 14 + Explain command implemented, pending release).*
 
 ## One-paragraph state
 
-The product is at **v0.5.0** with Phases 11.1, 12, 13 complete, and
-Phase 14 (CLI & CI developer experience) complete per the owner-authorized
-master prompt of 2026-11-10: 14.1 `--format json`, 14.2 read-only `verify`,
-14.3 shell completions, 14.4 a GitHub Actions workflow template — each
-committed separately, no version bump during Phase 14 (explicit
-master-prompt rule for this phase). Milestone 11.1.1: dependency reads are gated by
+The product is at **v0.6.0** with Phases 11.1, 12, 13 complete, Phase 14
+(CLI & CI developer experience: `--format json`, read-only `verify`, shell
+completions, a GitHub Actions workflow template) complete, and the
+owner-approved Explain command (Phase 15, master prompt of 2026-11-10,
+Option A: no IR changes) implemented on top. Milestone 11.1.1: dependency reads are gated by
 canonical-root, symlink-free, regular-file containment and all resolver
 budgets are enforced. Milestone 11.1.2: cross-file resolution is run-scoped —
 one `ResolverContext` per analysis run shares the module cache across
@@ -42,7 +41,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 662 tests (656 after Phase 14.2; +6 for Phase 14.3)
+- `cargo test --all-features` — pass, 690 tests (662 after Phase 14; +28 for the Explain command)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -58,6 +57,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 | `sync --staged [--dry-run]` | reconstructs desired state from the Git index for relevant Controller files; `--format json` |
 | `verify [--staged]` | read-only drift check reusing the sync pipeline as a dry run; exit 0/1/4; `--format json` |
 | `completions <shell>` | prints a completion script (bash/zsh/fish/powershell) to stdout |
+| `explain <SELECTOR>` | explains one route (method+path or controller/handler selector); `--file`, `--format json`; exit 0/1/2/4 |
 | `watch [--debounce MS]` | incremental route sync with full-resync fallbacks |
 
 **New in Phase 14 (complete, unreleased):**
@@ -72,6 +72,11 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 - 14.4 done: GitHub Actions verification workflow template documented in
   `website/guide/github-actions.md` (pull_request, `contents: read`,
   `cargo install nestbruno --locked`, `nestbruno verify`).
+- Explain command done (Phase 15, Option A): `nestbruno explain "METHOD
+  /path"` or `--controller`/`--handler` (+`--file`) reuses the analysis
+  pipeline and explains identification, path resolution, metadata and
+  warnings; `--format json`; ambiguous/missing selectors exit 1, malformed
+  selectors exit 2. Version bumped to 0.6.0 per the semver-per-phase rule.
 
 **New in Phase 11 (shipped in v0.2.0):**
 - Cross-file class/interface DTO resolution from imports in Controller files
