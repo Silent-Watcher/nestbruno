@@ -4,7 +4,10 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] — 2026-11-10
+
+Phase 12 — global prefix and URI versioning, composed statically in the
+route IR.
 
 ### Added
 

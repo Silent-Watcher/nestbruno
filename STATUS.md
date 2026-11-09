@@ -4,7 +4,7 @@
 
 ## One-paragraph state
 
-The product is at **v0.3.0** with **Phase 11.1 complete** (owner-authorized master prompt
+The product is at **v0.4.0** with Phases 11.1 and 12 complete (owner-authorized master prompt
 of 2026-11-10: resolver completion → Phase 12 global prefix/versioning →
 Phase 13 query/param DTOs; version bumps follow semver per completed
 phase). Milestone 11.1.1: dependency reads are gated by
