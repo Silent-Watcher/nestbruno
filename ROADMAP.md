@@ -1,54 +1,62 @@
-# ROADMAP.md — remaining phases (9–10)
+# ROADMAP.md — remaining phases (10–11)
 
-Based on the authoritative phase prompts (kept outside the repo) and the
-actual state in [PROGRESS.md](PROGRESS.md). Phases 1–8 are complete; nothing
-below is implemented. Each phase starts only on explicit instruction, ends
-with focused commit(s), and must pass fmt/clippy/test gates.
+Based on the authoritative owner prompts and the actual state in
+[PROGRESS.md](PROGRESS.md). Phases 1–9 are complete in the committed product
+history. Phase 10 and Phase 11 are separate: do not overwrite or renumber the
+OpenAPI work.
 
-## Phase 7 — Git staged synchronization — DONE (2026-11-06)
+Each phase starts only within its authorized scope. Do not create commits
+unless explicitly requested. Quality gates are required before any commit:
+`cargo fmt --check`, Clippy with `-D warnings`, and
+`cargo test --all-features`.
 
-`sync --staged [--dry-run]` shipped as designed. Record:
-`docs/phases/phase-07.md`.
+## Phase 10 — OpenAPI interoperability — Not Started
 
-## Phase 8 — Production hardening — DONE (2026-11-06)
+Export the existing route IR to OpenAPI (prefer 3.1), with optional
+`openapi validate --spec <file>` comparison. Consume the route IR; never
+reparse TypeScript. Keep deterministic output, conservative schemas, no
+network access, no `$ref` fetching, and no execution. This roadmap item is
+unchanged by Phase 11.
 
-Benchmarks (`cargo bench`, `docs/phases/phase-08.md`), lifecycle e2e test,
-audit doc-drift fixed, release checklist (`docs/release.md`), package
-metadata, release build + install smoke. Remaining (tracked): `cargo audit`
-in CI (needs network), Windows/macOS exercised by the authors.
+## Phase 11 — Cross-file DTO resolution (class + Zod) — Partial / unverified
 
-## Phase 9 — Advanced route semantics & request metadata — DONE (2026-11-08)
+The owner authorized Phase 11 on 2026-11-08. The supplied source tree contains
+an incomplete implementation attempt; it is not a shipped capability.
 
-Richer Bruno requests from static information only. Record:
-`docs/phases/phase-09.md`.
+Approved scope:
 
-- `RouteParameter.type_name` (keyword or bare identifier only) and
-  `BodyShape` (`None`/`Unknown`/`Fields`) on `Route.body`.
-- Same-file class/interface DTO property extraction (max 64, source order).
-- Generator: DTO fields → JSON skeleton (`null` per property); named
-  `@Body('field')` merged in; type metadata in `docs`.
-- Identity unchanged: metadata changes update in place (sync integration
-  tests). Backward compatible with phases 4–6.
-- 495 tests, fmt + clippy green, golden fixtures regenerated.
+- On-demand resolution from imports reachable from discovered Controllers;
+  never scan the whole `.ts` tree for DTOs.
+- Local relative imports and a limited static `tsconfig.json` subset:
+  `baseUrl`, `paths`, simple `*` wildcard mappings, implicit/explicit `.ts`,
+  and directory `index.ts` resolution.
+- No external package or `node_modules` traversal. External imports that are
+  not recognized semantic identifiers (such as known `zod` imports) resolve
+  to `BodyShape::Unknown`.
+- Four re-export hops maximum, explicit cycle detection, deterministic symbol
+  resolution, and bounded dependency/resource budgets.
+- Exported class/interface DTOs plus a conservative Zod subset (`z.object`,
+  aliased/named imports, `z.infer`, imported/re-exported schemas,
+  `createZodDto`, and safely understood transformations).
+- Class and Zod extraction share the existing `BodyShape` contract. Unsupported
+  or ambiguous results are `Unknown`, never guessed or partially accepted.
+- Watch Mode invalidates all dependent Controllers. Staged Sync resolves all
+  dependencies from the captured Git index only, never the working tree.
+- No changes to the analyzed NestJS project; resolver code lives in this Rust
+  repository.
 
-## Phase 10 — OpenAPI interoperability
+The canonical handoff, inspected working-tree state, verified blockers, and
+recommended narrow implementation sequence are in
+[`docs/phases/phase-11-cross-file-dto-resolution.md`](docs/phases/phase-11-cross-file-dto-resolution.md).
 
-**Objective:** export the existing route IR to OpenAPI (prefer 3.1); optional
-`openapi validate --spec <file>` comparison; consume the IR, never reparse.
-- Deterministic document (stable ordering, no timestamps), config for
-  title/version/description/servers; `:id` → `{id}` reusing existing
-  normalization; operationIds from controller+handler+method+path with
-  deterministic collision handling; conservative parameters/schemas/
-  responses (default response when nothing is known); no network, no `$ref`
-  fetching, no execution.
-- CLI per existing conventions; YAML and/or JSON output; golden tests;
-  security tests (traversal, malicious specs); must not regress Bruno
-  generation (same IR feeds both).
+Historical Phase 9 quality gates passed with 495 tests. The modified Phase 11
+working tree has not yet been verified in a Rust-enabled environment. No
+Phase 11 benchmark figures or test counts may be published until measured.
 
 ## Cross-phase notes
 
-- Phase 6 doc lists a measurement-motivated candidate (restrict watch
-  reconciliation to affected routes) that is **not scheduled**; revisit only
-  with Phase 8 benchmark evidence.
-- `docs/roadmap.md` (user-facing) mirrors this list in short form; keep the
-  two consistent when phases complete.
+- Phase 6 documents a measurement-motivated candidate (restrict watch
+  reconciliation to affected routes); it is not scheduled independently.
+- Update `STATUS.md`, `PROGRESS.md`, `KNOWN_ISSUES.md`, `DECISIONS.md`,
+  architecture/security docs, the Phase 11 handoff, and relevant website pages
+  as implementation changes are verified.

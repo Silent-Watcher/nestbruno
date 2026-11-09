@@ -89,3 +89,31 @@ Documented here so they are designed in, not forgotten:
 Dependencies are kept minimal (see `Cargo.toml` comments for the reason each
 exists). Run `cargo audit` locally if you have it installed; it is not yet part
 of CI.
+
+
+## Phase 11 imported-source analysis — security gate (not yet satisfied)
+
+The partial resolver introduces reads of TypeScript files selected by import
+specifiers. Those specifiers are untrusted source input. Before enabling this
+path as a supported feature, it must:
+
+- reject absolute paths, drive/UNC paths, lexical traversal, and any canonical
+  target outside the canonical project root;
+- reject symlinks (including symlinked intermediate directories), loops,
+  directories, special files, and non-regular targets; do not rely on
+  `Path::exists()` for authorization;
+- apply the existing source exclusion policy to imported files without
+  changing Controller discovery semantics;
+- never traverse `node_modules`, install packages, or access the network;
+- bound file count, dependency edges, aggregate bytes, DTO declarations,
+  per-file bytes, and re-export hops, enforcing—not merely declaring—each cap;
+- parse source using Oxc only; never execute TypeScript or resolve modules by
+  invoking Node or `tsc`;
+- isolate an unreadable or malformed dependency as an unknown body shape,
+  without converting a metadata-only failure into proof that a route vanished.
+
+For Watch Mode, dependency events must invalidate dependants or trigger a safe
+full resync. For `sync --staged`, dependency contents must come only from the
+captured Git index; working-tree fallback is forbidden. The current partial
+resolver does not yet satisfy these requirements. See
+[Phase 11 security and handoff notes](phases/phase-11-cross-file-dto-resolution.md).

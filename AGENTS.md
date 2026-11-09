@@ -13,9 +13,11 @@ repeating past mistakes or past investigation.
 4. `ROADMAP.md` — what comes next.
 5. `KNOWN_ISSUES.md` — verified problems and documentation drift.
 6. `DECISIONS.md` — decisions you must not silently reverse.
-7. The authoritative prompt for the phase you are implementing (kept outside
-   the repository; the plan is summarized in `ROADMAP.md`).
-8. The phase documents in `docs/phases/` for everything already built.
+7. The authoritative prompt for the phase you are implementing. For the
+   currently authorized Phase 11 work, the owner-approved decisions are
+   summarized in `docs/phases/phase-11-cross-file-dto-resolution.md`.
+8. The phase documents in `docs/phases/` for everything already built and the
+   canonical handoff for the active phase.
 
 Do not re-audit the whole repository each session; the context files are the
 source of truth. If you find they are wrong, fix the file, not just the code.
@@ -44,11 +46,22 @@ source of truth. If you find they are wrong, fix the file, not just the code.
   IDs, or filesystem-order dependence in generated files.
 - **README.md stays small** (what it is, install, usage, capabilities).
   Everything else goes in `docs/`.
-- **Update context files after meaningful work**: `PROGRESS.md`, `STATUS.md`,
-  and the phase doc in `docs/phases/` for the phase you touched. If the
-  change affects user-visible behavior, update the matching page under
-  `website/guide/` (the VitePress site) too; `npm run build` in `website/`
-  must stay green.
+- **Small, resumable work units.** Do not treat a large master prompt as one
+  indivisible task. Make the smallest safe, independently reviewable advance.
+  Before handing off, record the exact state, inspected files, blockers,
+  decisions, next action, and verification status so another agent can resume
+  without repeating the investigation. If the correct fix is clear but cannot
+  be safely implemented or verified in the current session, document it
+  precisely instead of spending tokens on speculative code.
+- **Update context files after each meaningful step**: `PROGRESS.md`,
+  `STATUS.md`, `KNOWN_ISSUES.md`, the relevant ADR/decision index, and the
+  active phase handoff. If user-visible behavior changes, update the matching
+  `website/guide/` page and navigation as appropriate. Run
+  `npm run build` in `website/` when available; never claim it passed if it
+  was not executed.
+- **Keep handoffs authoritative.** When a prompt or decision is superseded,
+  update or replace the old document and all navigation/references. Do not
+  leave contradictory architecture plans for the next agent to interpret.
 - **Commits**: small, atomic, conventional (`feat:`, `fix:`, `test:`,
   `docs:`, `chore:`). Inspect the full diff before committing; commit only
   intended files; verify `git status` is clean afterwards.
@@ -75,3 +88,7 @@ source of truth. If you find they are wrong, fix the file, not just the code.
   `is_incomplete()` because of this contract.
 - Reconciliation plans are pure; application re-verifies every hash and path
   before writing.
+- Phase 11 DTO dependency resolution is on-demand, local-only and bounded.
+  It must preserve `BodyShape::Unknown` for uncertain metadata; see the
+  canonical Phase 11 handoff for current unverified blockers. Phase 10 remains
+  OpenAPI interoperability.

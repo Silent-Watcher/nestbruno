@@ -56,8 +56,14 @@ fn bench_extract(criterion: &mut Criterion) {
     group.throughput(criterion::Throughput::Bytes(source.len() as u64));
     group.bench_function("100_controllers", |bench| {
         bench.iter(|| {
-            let analysis =
-                extract_controllers(Path::new("bench/bench.controller.ts"), black_box(&source));
+            let analysis = extract_controllers(
+                Path::new("bench/bench.controller.ts"),
+                black_box(&source),
+                None,
+                None,
+                None,
+                None,
+            );
             assert_eq!(analysis.controllers.len(), 100);
         })
     });
@@ -67,7 +73,14 @@ fn bench_extract(criterion: &mut Criterion) {
 fn bench_generate(criterion: &mut Criterion) {
     // Pure planner from the route IR to desired requests.
     let source = synthetic_project(100);
-    let analysis = extract_controllers(Path::new("bench/bench.controller.ts"), &source);
+    let analysis = extract_controllers(
+        Path::new("bench/bench.controller.ts"),
+        &source,
+        None,
+        None,
+        None,
+        None,
+    );
     let config = Config::default();
     let mut group = criterion.benchmark_group("generate");
     group.bench_function("100_controllers_300_routes", |bench| {
@@ -124,7 +137,14 @@ fn bench_discover(criterion: &mut Criterion) {
 fn bench_sync_noop(criterion: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let source = synthetic_project(250);
-    let analysis = extract_controllers(Path::new("bench/bench.controller.ts"), &source);
+    let analysis = extract_controllers(
+        Path::new("bench/bench.controller.ts"),
+        &source,
+        None,
+        None,
+        None,
+        None,
+    );
     let config = Config::default();
     let generation = generate(&config, &analysis.controllers);
     assert_eq!(generation.requests.len(), 750);

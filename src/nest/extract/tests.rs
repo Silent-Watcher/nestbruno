@@ -8,7 +8,7 @@ use crate::route::BodyShape;
 const FILE: &str = "src/users/users.controller.ts";
 
 fn analyze(source: &str) -> FileAnalysis {
-    extract_controllers(Path::new(FILE), source)
+    extract_controllers(Path::new(FILE), source, None, None, None, None)
 }
 
 /// Analyze a source that is expected to be diagnostic-free.
@@ -856,6 +856,10 @@ fn malformed_source_yields_an_error_diagnostic_with_a_position() {
     let a = extract_controllers(
         Path::new("src/bad.controller.ts"),
         "@Controller('x')\nexport class C {\n  @Get(\n  h() {}\n",
+        None,
+        None,
+        None,
+        None,
     );
     assert!(a.controllers.is_empty());
     assert_eq!(a.diagnostics.len(), 1);

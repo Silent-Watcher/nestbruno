@@ -44,12 +44,16 @@
   build + install smoke.
 
 - **Phase 9 (advanced route semantics & request metadata):** parameter type
-  annotations (keywords and bare identifiers), same-file DTO property
-  extraction (max 64 properties, source order), `BodyShape` on routes
+  annotations (keywords and bare identifiers), same-file class/interface DTO
+  property extraction (max 64 properties, source order), `BodyShape` on routes
   (`None`/`Unknown`/`Fields`), JSON skeleton generation with `null` per DTO
   field, named `@Body('field')` parameters merged in, type metadata in
   `docs` block. Metadata changes update requests in place (identity
   unchanged); backward compatible with earlier output.
+
+- **Phase 11 (cross-file class/interface + Zod DTO resolution):** in progress,
+  not a verified/shipped product capability. See
+  [`phase-11-cross-file-dto-resolution.md`](phases/phase-11-cross-file-dto-resolution.md).
 
 ## Commands
 
@@ -89,8 +93,11 @@
   noisy sandbox runs); parsing and writes are
   proportional to the change.
 - `@All`, unresolved/array paths and paths with `?`, `#`, whitespace or `{{`
-  are not generated; bodies are skeletons; no environment or `folder.bru` is
-  created (`baseUrl` must be defined in a Bruno environment).
+  are not generated; body examples are skeletons, not full schemas. DTO field
+  extraction is currently limited to class/interface declarations in the
+  Controller file; imported class/interface and Zod DTO support is not yet
+  verified. No environment or `folder.bru` is created (`baseUrl` must be
+  defined in a Bruno environment).
 - Output verified with Bruno's parser library, not by opening the desktop app.
 - Discovery measurement so far: ad-hoc runs on synthetic trees (100,000-file
   discovery; 5,000-controller extraction, 5,000-file generation; 5,000-request sync; see the phase documents). No benchmark suite exists yet (planned with the hardening phase).

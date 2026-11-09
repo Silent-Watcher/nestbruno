@@ -60,11 +60,16 @@ use oxc_ast::ast::{
 use oxc_parser::Parser;
 use oxc_span::{SourceType, Span};
 
+use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
+use crate::discovery::Matcher;
+use crate::resolve::limits::MAX_DTO_PROPERTIES;
+use crate::resolve::resolve_cross_file_dtos;
 use crate::route::{
     BodyShape, Controller, HttpMethod, ParameterKind, ParameterName, Route, RouteParameter,
     RoutePath, SourceLocation, compose_path,
 };
+use std::collections::HashMap;
 
 /// Everything found in one file.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -94,7 +99,18 @@ pub const PARSER_STACK_BYTES: usize = MAX_SOURCE_BYTES * STACK_BYTES_PER_SOURCE_
 ///
 /// Must run on a stack of at least [`PARSER_STACK_BYTES`] unless the input is
 /// trusted to be shallowly nested.
-pub fn extract_controllers(file: &Path, source: &str) -> FileAnalysis {
+///
+/// If `project_root`, `source_prefix`, `config`, and `matcher` are provided,
+/// cross-file DTO resolution is performed for `@Body` parameters whose type
+/// was not resolved from same-file DTOs.
+pub fn extract_controllers(
+    file: &Path,
+    source: &str,
+    project_root: Option<&Path>,
+    source_prefix: Option<&Path>,
+    config: Option<&Config>,
+    matcher: Option<&Matcher>,
+) -> FileAnalysis {
     if source.len() > MAX_SOURCE_BYTES {
         return FileAnalysis {
             controllers: Vec::new(),
@@ -104,12 +120,19 @@ pub fn extract_controllers(file: &Path, source: &str) -> FileAnalysis {
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
 
+    // Extract same-file DTOs first
+    let same_file_dtos_vec = dto_properties(&parsed.program);
+    let mut same_file_dtos: HashMap<String, Vec<String>> = HashMap::new();
+    for (name, props) in &same_file_dtos_vec {
+        same_file_dtos.insert(name.clone(), props.clone());
+    }
+
     let mut extractor = Extractor {
         file: Arc::from(file),
         source,
         lines: OnceCell::new(),
         diagnostics: Vec::new(),
-        dtos: dto_properties(&parsed.program),
+        dtos: same_file_dtos_vec,
     };
 
     if parsed.panicked || !parsed.errors.is_empty() {
@@ -146,14 +169,68 @@ pub fn extract_controllers(file: &Path, source: &str) -> FileAnalysis {
             controllers.push(controller);
         }
     }
-    extractor.finish(controllers)
-}
 
-/// Most property definitions a same-file DTO may contribute. A class with
-/// more properties than this contributes its first 64 — the skeleton is a
-/// placeholder, not a schema, and pathological classes must not produce
-/// pathological output.
-const MAX_DTO_PROPERTIES: usize = 64;
+    let mut file_analysis = extractor.finish(controllers);
+
+    // Cross-file DTO resolution for routes with Unknown body shape
+    if let (Some(project_root), Some(source_prefix), Some(config), Some(matcher)) =
+        (project_root, source_prefix, config, matcher)
+    {
+        // For each route with Unknown body and @Body parameters, resolve cross-file DTOs
+        for controller in &mut file_analysis.controllers {
+            for route in &mut controller.routes {
+                if route.body != BodyShape::Unknown {
+                    continue;
+                }
+
+                // Collect @Body parameters for this route
+                let body_params: Vec<RouteParameter> = route
+                    .parameters
+                    .iter()
+                    .filter(|p| p.kind == ParameterKind::Body)
+                    .cloned()
+                    .collect();
+
+                if body_params.is_empty() {
+                    continue;
+                }
+
+                // Resolve cross-file DTOs for this route's body parameters
+                let resolutions = resolve_cross_file_dtos(
+                    project_root,
+                    source_prefix,
+                    config,
+                    matcher,
+                    file,
+                    &body_params,
+                    &same_file_dtos,
+                );
+
+                // Apply the first successful resolution (NestJS only allows one @Body per route)
+                if let Some((_param_idx, resolution)) = resolutions.resolutions.into_iter().next() {
+                    match resolution {
+                        crate::resolve::DtoResolution::Fields(props)
+                        | crate::resolve::DtoResolution::ZodFields(props) => {
+                            if !props.is_empty() {
+                                route.body = BodyShape::Fields(props);
+                            }
+                        }
+                        crate::resolve::DtoResolution::Uncertain(_) => {
+                            // A partial property list is not a complete body
+                            // shape. Keep the conservative Unknown fallback.
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Merge diagnostics
+                file_analysis.diagnostics.extend(resolutions.diagnostics);
+            }
+        }
+    }
+
+    file_analysis
+}
 
 /// Collect the property names of every top-level class **and interface**,
 /// keyed by name. Only what the body skeleton needs: names in source order,

@@ -1,22 +1,23 @@
 # Roadmap
 
-Future work only. Implemented phases are listed in
-[project-status.md](project-status.md).
+Implemented phases are listed in [project-status.md](project-status.md), and
+the agent-facing phase state is tracked in the repository root `PROGRESS.md`.
+Phase 10 and Phase 11 are independent items; Phase 11 does not replace or
+renumber the OpenAPI work.
 
-The list follows the phase prompts provided so far (the original conceptual
-plan in the first prompt was reorganized: dry run arrived in phase 5, and
-watch mode and incremental synchronization were merged into phase 6).
+The original conceptual phase sequence was reorganized: dry run shipped in
+Phase 5, while Watch Mode and incremental synchronization were merged into
+Phase 6.
 
 | Phase | Title | Notes |
 | --- | --- | --- |
-| 7 | ~~Git staged files and selective synchronization~~ | **done** — `sync --staged`; see [phases/phase-07.md](phases/phase-07.md) |
-| 8 | Production hardening, CLI UX and release readiness | exit-code contract, configuration validation, benchmarks, cross-platform review, release checklist |
-| 9 | Advanced route semantics and request metadata | **done** — parameter types, DTO fields, `BodyShape`, in-place updates; see [phases/phase-09.md](phases/phase-09.md) |
-| 10 | OpenAPI interoperability | export/validate from the route IR |
+| 10 | OpenAPI interoperability | **Not started** — export/validate from the route IR; never reparse TypeScript |
+| 11 | Cross-file DTO resolution (class + Zod) | **Partial / unverified** — on-demand local import resolution; see [Phase 11 handoff](phases/phase-11-cross-file-dto-resolution.md) |
 
-Candidates raised by measurements but not scheduled: restricting the
-reconciliation pass to the affected routes in watch mode (see
+Phase 11 is not a released capability. Its source-level findings, owner-approved
+constraints, implementation sequence, and completion criteria are documented
+in [phases/phase-11-cross-file-dto-resolution.md](phases/phase-11-cross-file-dto-resolution.md).
+
+Candidates raised by measurements but not scheduled: restricting the Watch
+Mode reconciliation pass to affected routes (see
 [phases/phase-06.md](phases/phase-06.md), Performance).
-
-The authoritative prompts for each phase are provided separately; each phase
-document in `phases/` records the decisions the next phase builds on.

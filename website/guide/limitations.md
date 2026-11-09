@@ -19,7 +19,10 @@ NestBruno reflects what is statically visible in decorators. Not modelled:
   index but does not watch the collection (your Bruno edits are caught by
   write-time verification).
 - **Not generated:** `@All` routes, unresolved/array paths, paths with `?`,
-  `#`, whitespace or <span v-pre>`{{`</span>. Bodies are skeletons (no DTO analysis).
+  `#`, whitespace or <span v-pre>`{{`</span>. Body examples are skeletons,
+  not full validation schemas. DTO field extraction currently recognizes
+  class/interface declarations in the Controller file only; imported DTOs and
+  Zod schemas are not yet a verified feature.
 - **No environment or `folder.bru`** — `baseUrl` must be defined by you.
 - **Output verified with Bruno's parser library**, not by opening the
   desktop app; Windows/macOS are exercised in CI but were developed on
@@ -59,5 +62,4 @@ file could not be read/parsed. Fix the files named by `error:` diagnostics —
 until then, no destructive operation runs.
 
 **Where are the development details?** In the repository:
-`docs/architecture.md`, `docs/phases/phase-01.md` … `phase-06.md`, and the
-[Phases overview](/phases/).
+`docs/architecture.md`, `docs/phases/`, and the [Phases overview](/phases/).

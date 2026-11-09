@@ -27,8 +27,15 @@ requires a concrete reason recorded next to the phase doc.
 | 19 | Git access via `git2` 0.21 (libgit2, linked), never shelling out | phase-07, `staged.rs` | index/HEAD/blob + rename detection; no external `git`, no hooks, no subprocess |
 | 20 | `sync --staged` desired state is always the full index (gate on staged changes, but no incremental patching) | phase-07 | staged sync ≡ fresh sync of the staged state, tested byte-for-byte; avoids route models matching neither state |
 
+| 21 | Cross-file DTO dependencies are resolved on demand from Controller imports; Controller discovery remains path-only and unchanged | Phase 11 handoff | avoids project-wide TypeScript scans and keeps discovery semantics stable |
+| 22 | Local import resolution only: relative paths plus limited `baseUrl` / `paths`; no package or `node_modules` traversal | Phase 11 handoff | bounds filesystem access and avoids pretending to be a full TS resolver |
+| 23 | Re-export traversal is capped at four hops and uses explicit cycle/symbol state | Phase 11 handoff | deterministic, bounded graph resolution |
+| 24 | Class/interface DTOs and statically recognized Zod schemas share the existing `BodyShape` IR | Phase 11 handoff | keeps generation independent of TypeScript and Zod |
+| 25 | Unsupported, ambiguous, malformed, or uncertain DTO metadata stays `BodyShape::Unknown` | Phase 11 handoff | never generate a guessed or partial request-body shape |
+
 ## Deliberately *not* decided / open
 
-- **Benchmark suite**: none; first one planned for Phase 8.
+- **Benchmark extensions for Phase 11**: dimensions and reporting are to be
+  selected after correctness and measured against the existing Criterion suite.
 - License: MIT (chosen by the owner 2026-11-06; `LICENSE` +
   `license = "MIT"`).

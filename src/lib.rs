@@ -12,6 +12,7 @@ pub mod discovery;
 pub mod error;
 pub mod nest;
 pub mod project;
+pub mod resolve;
 pub mod route;
 pub mod staged;
 pub mod sync;

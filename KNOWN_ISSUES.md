@@ -63,3 +63,60 @@ assertions, not guarantees, and re-verify before relying on them:
   `argv[0]`. Use the toolchain binaries directly
   (`PATH=$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/bin:$PATH`).
   Not a project bug; recorded so agents don't misdiagnose it.
+
+
+## Phase 11 — current unverified implementation blockers (2026-11-08)
+
+These are source-inspection findings from the supplied, uncommitted working
+tree. They are not represented as passing/failing test results because the
+Rust toolchain was unavailable during this handoff.
+
+- **Uncertain Zod output — fix pending verification:** the inspected version
+  mapped `DtoResolution::Uncertain` to `BodyShape::Fields`. The latest handoff
+  changes this branch to preserve `BodyShape::Unknown`; an extractor-level
+  regression and compile/test run are still required before closing the issue.
+- **Import path containment is incomplete:** `resolve/module.rs` performs
+  lexical checks and `exists()` checks but no canonical symlink containment or
+  regular-file validation. Absolute/re-export path representation is also
+  inconsistent. Treat as a security blocker before enabling the resolver.
+- **Re-export semantics are incomplete:** aliased re-export names are mapped
+  incorrectly in lookup, and local declarations are considered even without
+  confirming that they are exported. Verify Oxc AST field semantics and map
+  public names to source-local names.
+- **Duplicate parsing:** the Controller is parsed once by `extract.rs` and
+  again by the resolver to discover imports; Zod analysis creates a second Oxc
+  parser pass for a module. A `ModuleAnalysis.source` clone is also retained
+  without a current consumer.
+- **Cache scope too narrow:** the resolver is created by
+  `resolve_cross_file_dtos()` at each route call site, so shared dependencies
+  are not reused across a Controller analysis, much less across Controllers
+  in one run.
+- **Watch dependency changes not wired:** `Workspace::refresh()` uses
+  `Matcher::is_relevant()`, which intentionally matches Controller candidates;
+  ordinary DTO/schema files are ignored. A reverse dependency index or safe
+  full-resync fallback is required.
+- **Staged dependencies not wired:** `analyze_sources()` currently invokes
+  extraction without project/source context, and `staged::collect_sources()`
+  only reads Matcher-relevant Controller entries. The resolver must read each
+  imported dependency from the Git index snapshot on demand, with no working-
+  tree fallback.
+- **Graph budgets are partly declarations only:** `MAX_IMPORT_EDGES` is not
+  enforced; `MAX_DTO_DECLARATIONS` emits a warning but does not stop/cap
+  extraction. Explicit `(module, symbol)` cycle state is absent.
+- **Zod analyzer gaps:** `analyze_chained()` has no call site; `z.infer` must be
+  tied to an imported Zod binding; exported visibility is not consistently
+  validated. The unverified handoff removes the bare-name `createZodDto`
+  fallback and adds a focused regression test, but this has not been executed.
+- **Test coverage is not acceptance coverage:** the uncommitted resolver has
+  unit tests, but comprehensive `.bru` integration, reverse-dependency Watch,
+  staged index/worktree divergence, property tests, and resolver benchmarks
+  have not been verified.
+- **Benchmark call sites updated:** the three existing `extract_controllers()`
+  calls in `benches/pipeline.rs` now pass an explicit empty dependency context
+  for the expanded extractor signature. This compatibility edit is uncompiled.
+- **Debug output removed:** an `eprintln!` in import/re-export extraction was
+  removed during this handoff to avoid leaking debug output into normal CLI
+  execution. This one-line cleanup has not been compiled in this environment.
+
+The authoritative resolution steps and acceptance checklist are in
+[`docs/phases/phase-11-cross-file-dto-resolution.md`](docs/phases/phase-11-cross-file-dto-resolution.md).

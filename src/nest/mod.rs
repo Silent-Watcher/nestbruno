@@ -18,8 +18,9 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::thread;
 
+use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
-use crate::discovery::ControllerFile;
+use crate::discovery::{ControllerFile, Matcher};
 use crate::error::Error;
 use crate::project::Project;
 use crate::route::Controller;
@@ -85,12 +86,29 @@ pub fn analyze_each(
     let sources: Vec<(PathBuf, Option<String>)> =
         files.iter().map(|file| (file.path.clone(), None)).collect();
     let root = project.root().to_owned();
+    let source_prefix = project.config().source.clone();
+    let config = project.config().clone();
+    let matcher = Matcher::new(&config).ok();
     run_analysis(sources, move |relative, content| match content {
-        Some(source) => analyze_content(relative, &source),
+        Some(source) => analyze_content(
+            relative,
+            &source,
+            Some(&root),
+            Some(&source_prefix),
+            Some(&config),
+            matcher.as_ref(),
+        ),
         None => {
             let source = read_source(&root, relative);
             match source {
-                Ok(source) => analyze_content(relative, &source),
+                Ok(source) => analyze_content(
+                    relative,
+                    &source,
+                    Some(&root),
+                    Some(&source_prefix),
+                    Some(&config),
+                    matcher.as_ref(),
+                ),
                 Err(diagnostic) => FileAnalysis {
                     controllers: Vec::new(),
                     diagnostics: vec![diagnostic],
@@ -109,7 +127,7 @@ fn analyze_contents(sources: &[(PathBuf, String)]) -> Result<Vec<(PathBuf, FileA
     run_analysis(owned, |relative, content| {
         // The loader guarantees `Some` for in-memory sources.
         match content {
-            Some(source) => analyze_content(relative, &source),
+            Some(source) => analyze_content(relative, &source, None, None, None, None),
             None => FileAnalysis {
                 controllers: Vec::new(),
                 diagnostics: vec![Diagnostic::new(
@@ -151,10 +169,26 @@ fn run_analysis(
 }
 
 /// Analyze content that was already read (from disk or elsewhere).
-fn analyze_content(relative: &Path, source: &str) -> FileAnalysis {
+fn analyze_content(
+    relative: &Path,
+    source: &str,
+    project_root: Option<&Path>,
+    source_prefix: Option<&Path>,
+    config: Option<&Config>,
+    matcher: Option<&Matcher>,
+) -> FileAnalysis {
     // Defence in depth: the parser is third-party code fed untrusted input. A
     // panic in it must cost one file, not the whole run.
-    match guarded(|| extract_controllers(relative, source)) {
+    match guarded(|| {
+        extract_controllers(
+            relative,
+            source,
+            project_root,
+            source_prefix,
+            config,
+            matcher,
+        )
+    }) {
         Ok(mut result) => {
             if result.controllers.is_empty() && result.diagnostics.is_empty() {
                 result.diagnostics.push(Diagnostic::new(

@@ -1,7 +1,9 @@
 # Architecture
 
-This document describes the system as it exists today. Sections for future
-components are marked *planned* and are not implemented.
+This document describes the last verified product architecture (Phases 1–9).
+The supplied working tree contains a partial, unverified Phase 11 resolver
+attempt; it is explicitly separated below so proposed/incomplete behavior is
+not mistaken for shipped functionality.
 
 ## Module responsibilities
 
@@ -162,3 +164,35 @@ change the command is a clean no-op. Rules, security and limits:
 ## Planned components (not implemented)
 
 None. See [roadmap.md](roadmap.md) for what comes after Phase 7.
+
+
+## Phase 11 resolver attempt (partial; not shipped)
+
+A partial `src/resolve/` implementation is present in the current working
+tree. The intended shape is:
+
+```text
+Controller discovery (unchanged; Controller candidates only)
+    → Controller AST/import metadata
+    → on-demand local dependency resolution
+    → exported class/interface or supported Zod schema properties
+    → existing BodyShape::{None, Unknown, Fields}
+    → existing Bruno generation and reconciliation
+```
+
+The resolver must not broaden discovery to every `.ts` file. It may read a
+local dependency only after following a supported import reachable from a
+Controller body type. The approved subset includes relative imports, simple
+`tsconfig` `baseUrl` / `paths` mappings, `.ts` extension variants,
+`index.ts`, named/type-only/aliased imports, named re-exports, exported
+class/interface DTOs, and a conservative set of Zod schema patterns. It does
+not include `node_modules` or general TypeScript compiler compatibility.
+
+This is an intended architecture, not a claim that all behavior is implemented.
+The inspected code still needs canonical symlink containment, correct
+export-alias mapping and visibility checks, a single parse per module,
+run-scoped compact metadata caching, explicit cycle tracking, enforced graph
+budgets, and conservative Zod fallback. Watch Mode dependency invalidation and
+Git-index-only staged dependency resolution are also outstanding. Full details
+and verified source locations are in
+[Phase 11](phases/phase-11-cross-file-dto-resolution.md).
