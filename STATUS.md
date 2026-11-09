@@ -1,28 +1,31 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-09, after completing Phase 11 implementation.*
+*Last updated: 2026-11-09, after the post-v0.2.0 NodeNext import-specifier fix (v0.2.1).*
 
 ## One-paragraph state
 
-The product is at **v0.2.0** (commits `d7bc701` Phase 11 feature,
-`3c0dbf5` version bump): a Rust 2024 / MSRV 1.91 CLI that statically
-analyzes NestJS routes and keeps a Bruno collection synchronized.
+The product is at **v0.2.1** (Phase 11 shipped in v0.2.0, commits `d7bc701`
+feature and `3c0dbf5` version bump): a Rust 2024 / MSRV 1.91 CLI that
+statically analyzes NestJS routes and keeps a Bruno collection synchronized.
 Phases 1–9 and 11 are complete in the committed history. Phase 10 remains
-**OpenAPI interoperability** and has not started. The Phase 11 working
-tree was committed on 2026-11-09 after verification.
+**OpenAPI interoperability** and has not started. On 2026-11-09 a real-world
+failure was fixed: NodeNext-style `.js`/`.mjs`/`.cjs` import specifiers did
+not resolve, degrading all cross-file DTO resolution to
+`BodyShape::Unknown` for `moduleResolution: "NodeNext"` projects.
 
 ## Repository snapshot
 
 - Phase 11 implementation: commit `d7bc701`.
 - Version 0.2.0 + crates.io packaging (`include` list): commit `3c0dbf5`.
-- Documentation overhaul (this file and the rest): the current working
-  tree as of 2026-11-09.
+- Documentation overhaul: the 2026-11-09 working tree.
+- Post-release fix (NodeNext import specifiers) + v0.2.1 bump: the
+  current working tree as of 2026-11-09.
 
 ## Current verified results (working tree, 2026-11-09)
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 535 tests (was 495 at Phase 9)
+- `cargo test --all-features` — pass, 539 tests (was 535 at Phase 11, 495 at Phase 9)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -47,6 +50,12 @@ tree was committed on 2026-11-09 after verification.
 - Cycle detection via (module, symbol) resolution stack
 - Uncertain/ambiguous results → `BodyShape::Unknown` (conservative)
 - Benchmark `extract_cross_file/1_controller_1_shared_dto` — ~40 µs median (2026-11-09, i7-1255U)
+
+**Post-release fix (v0.2.1, 2026-11-09):**
+- NodeNext emitted specifier extensions (`.js`/`.mjs`/`.cjs`) resolve to
+  `.ts`/`.mts`/`.cts` sources; previously any project with
+  `moduleResolution: "NodeNext"` silently got `BodyShape::Unknown` for every
+  cross-file DTO.
 
 ## Phase 11 — remaining work (deferred to future phases)
 
