@@ -34,6 +34,8 @@ requires a concrete reason recorded next to the phase doc.
 | 25 | Unsupported, ambiguous, malformed, or uncertain DTO metadata stays `BodyShape::Unknown` | Phase 11 handoff | never generate a guessed or partial request-body shape |
 | 26 | Dependency reads are gated by symlink-free, regular-file containment against the canonical project root (`resolve/containment.rs`); candidate selection never follows links | Phase 11.1, Milestone 11.1.1 | untrusted trees must not redirect dependency reads through symlinks; special files must never be opened (a FIFO would block the analyzer) |
 | 27 | All resolver budgets share reject-the-exceeding-operation semantics; `MAX_IMPORT_EDGES` and `MAX_DTO_DECLARATIONS` are enforced, not advisory | Phase 11.1, `resolve/limits.rs` | no partially tracked state is ever published; budget exhaustion degrades to `BodyShape::Unknown` |
+| 28 | `verify` is the sync pipeline run as a dry run plus reporting — no second reconciliation algorithm; drift exits 1 by reusing the existing `FAILURE` code, conflicts/incompleteness exit 4 (Phase 14.2, `commands.rs`) | one code path cannot diverge from sync's guarantees; no invented exit codes (master-prompt rule); CI needs only "non-zero" |
+| 29 | JSON output is a presentation layer of DTOs built from the existing results (`output.rs`), never a second result model | Phase 14.1 | no duplicated business logic; documents stay consistent with sync/verify semantics |
 
 ## Deliberately *not* decided / open
 
