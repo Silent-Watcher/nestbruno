@@ -6,6 +6,39 @@ All notable changes to NestBruno are documented here. The format follows
 
 ## [Unreleased]
 
+### Performance
+
+- Cross-file DTO resolution is now run-scoped (Phase 11.1, Milestone 11.1.2):
+  one resolver context per analysis run shares the module cache, resource
+  budgets, and diagnostics across every Controller file and route. A
+  dependency file is read and parsed once per run no matter how many
+  Controllers import it; previously a fresh resolver per route re-read and
+  re-parsed the controller and every dependency for each route.
+- Single-parse module analysis: imports/exports, Zod schemas, and local DTO
+  extraction all consume one oxc parse per module (previously dependency
+  modules were parsed twice), and the controller file is never re-read for
+  resolution — the extractor seeds the run cache with the AST-derived
+  metadata of the program it already parsed. Measured: cross-file resolution
+  benchmark 40 µs → 30 µs median (−35%, Criterion, same machine).
+- `ModuleAnalysis` no longer retains the dependency source text; only
+  compact AST-derived metadata is cached.
+- Criterion suite extended with shared-workload cross-file benchmarks:
+  `8_controllers_1_shared_dto` (79 µs), `1_controller_8_routes_shared_dto`
+  (132 µs), `4_hops_reexport_chain` (26 µs), `8_controllers_8_dtos_each`
+  (569 µs; 64 dependency files in one run).
+
+### Changed
+
+- The extraction pipeline threads a `ProjectContext` (root, source prefix,
+  config, matcher, resolver context) instead of four separate optional
+  parameters; `analyze_each` creates one `ResolverContext` per run. Staged
+  analysis still runs without project context (same-file DTOs only, until
+  the Git-index source provider lands).
+- Measured on the unchanged no-cross-file extraction path
+  (`extract/100_controllers`), a back-to-back A/B showed ~4% slower medians
+  (533 µs → 554 µs) with identical logic; attributed to code-layout shift
+  from the refactor and recorded here rather than claimed away.
+
 ### Security
 
 - Cross-file dependency reads are validated before being opened

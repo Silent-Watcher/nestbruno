@@ -23,8 +23,27 @@ use crate::diag::{Diagnostic, Severity};
 use crate::discovery::{ControllerFile, Matcher};
 use crate::error::Error;
 use crate::project::Project;
+use crate::resolve::ResolverContext;
 use crate::route::Controller;
 use extract::{FileAnalysis, MAX_SOURCE_BYTES, PARSER_STACK_BYTES, extract_controllers, too_large};
+
+/// The per-run project facts threaded through analysis: where the project
+/// lives, its configuration, and the run-scoped cross-file resolver state.
+///
+/// `None`-valued project context (staged analysis, most unit tests) means no
+/// cross-file DTO resolution is performed.
+pub struct ProjectContext<'a> {
+    /// Project root directory.
+    pub root: &'a Path,
+    /// Source directory prefix (e.g., "src").
+    pub source_prefix: &'a Path,
+    /// Configuration.
+    pub config: &'a Config,
+    /// Discovery matcher for exclusion checks.
+    pub matcher: &'a Matcher,
+    /// Shared run state for cross-file DTO resolution.
+    pub resolver: &'a mut ResolverContext,
+}
 
 /// The analysis of a set of files.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -85,34 +104,33 @@ pub fn analyze_each(
 ) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
     let sources: Vec<(PathBuf, Option<String>)> =
         files.iter().map(|file| (file.path.clone(), None)).collect();
-    let root = project.root().to_owned();
+    let root = project.root();
     let source_prefix = project.config().source.clone();
-    let config = project.config().clone();
-    let matcher = Matcher::new(&config).ok();
-    run_analysis(sources, move |relative, content| match content {
-        Some(source) => analyze_content(
-            relative,
-            &source,
-            Some(&root),
-            Some(&source_prefix),
-            Some(&config),
-            matcher.as_ref(),
-        ),
-        None => {
-            let source = read_source(&root, relative);
-            match source {
-                Ok(source) => analyze_content(
-                    relative,
-                    &source,
-                    Some(&root),
-                    Some(&source_prefix),
-                    Some(&config),
-                    matcher.as_ref(),
-                ),
-                Err(diagnostic) => FileAnalysis {
-                    controllers: Vec::new(),
-                    diagnostics: vec![diagnostic],
-                },
+    let config = project.config();
+    let matcher = Matcher::new(config).ok();
+    // One resolver context per analysis run: every file below shares the
+    // module cache, budgets and diagnostics, so a dependency imported by
+    // several controllers is read and parsed once.
+    let mut resolver_context = ResolverContext::new(root);
+    run_analysis(sources, move |relative, content| {
+        let mut project_context = matcher.as_ref().map(|matcher| ProjectContext {
+            root,
+            source_prefix: &source_prefix,
+            config,
+            matcher,
+            resolver: &mut resolver_context,
+        });
+        match content {
+            Some(source) => analyze_content(relative, &source, project_context.as_mut()),
+            None => {
+                let source = read_source(root, relative);
+                match source {
+                    Ok(source) => analyze_content(relative, &source, project_context.as_mut()),
+                    Err(diagnostic) => FileAnalysis {
+                        controllers: Vec::new(),
+                        diagnostics: vec![diagnostic],
+                    },
+                }
             }
         }
     })
@@ -127,7 +145,7 @@ fn analyze_contents(sources: &[(PathBuf, String)]) -> Result<Vec<(PathBuf, FileA
     run_analysis(owned, |relative, content| {
         // The loader guarantees `Some` for in-memory sources.
         match content {
-            Some(source) => analyze_content(relative, &source, None, None, None, None),
+            Some(source) => analyze_content(relative, &source, None),
             None => FileAnalysis {
                 controllers: Vec::new(),
                 diagnostics: vec![Diagnostic::new(
@@ -141,10 +159,11 @@ fn analyze_contents(sources: &[(PathBuf, String)]) -> Result<Vec<(PathBuf, FileA
 }
 
 /// Run `analyze` for every (path, optional content) on the dedicated worker
-/// thread with the parser-sized stack.
+/// thread with the parser-sized stack. One worker, so the closure may hold
+/// run-scoped mutable state ([`FnMut`], [`Send`], no `Sync` needed).
 fn run_analysis(
     inputs: Vec<(PathBuf, Option<String>)>,
-    analyze: impl Fn(&Path, Option<String>) -> FileAnalysis + Send + Sync,
+    mut analyze: impl FnMut(&Path, Option<String>) -> FileAnalysis + Send,
 ) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
     thread::scope(|scope| {
         let worker = thread::Builder::new()
@@ -172,23 +191,11 @@ fn run_analysis(
 fn analyze_content(
     relative: &Path,
     source: &str,
-    project_root: Option<&Path>,
-    source_prefix: Option<&Path>,
-    config: Option<&Config>,
-    matcher: Option<&Matcher>,
+    project: Option<&mut ProjectContext<'_>>,
 ) -> FileAnalysis {
     // Defence in depth: the parser is third-party code fed untrusted input. A
     // panic in it must cost one file, not the whole run.
-    match guarded(|| {
-        extract_controllers(
-            relative,
-            source,
-            project_root,
-            source_prefix,
-            config,
-            matcher,
-        )
-    }) {
+    match guarded(|| extract_controllers(relative, source, project)) {
         Ok(mut result) => {
             if result.controllers.is_empty() && result.diagnostics.is_empty() {
                 result.diagnostics.push(Diagnostic::new(

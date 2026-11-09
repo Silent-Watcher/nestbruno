@@ -49,9 +49,17 @@ pub fn analyze_zod_in_file(source: &str) -> HashMap<String, ZodSchema> {
     if parsed.panicked || !parsed.errors.is_empty() {
         return HashMap::new();
     }
+    analyze_zod_program(&parsed.program)
+}
 
+/// Analyze an already-parsed program for Zod schemas and related constructs.
+///
+/// The single-parse entry point: module analysis parses a dependency once and
+/// hands the same program to this function, [`extract_imports_exports`], and
+/// local DTO extraction, instead of re-parsing per analyzer.
+pub fn analyze_zod_program(program: &oxc_ast::ast::Program<'_>) -> HashMap<String, ZodSchema> {
     let mut analyzer = ZodAnalyzer::new();
-    analyzer.analyze(&parsed.program);
+    analyzer.analyze(program);
     analyzer.schemas
 }
 

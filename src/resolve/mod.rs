@@ -23,7 +23,7 @@ use crate::resolve::imports::{ModuleImportsExports, extract_imports_exports};
 use crate::resolve::limits::*;
 use crate::resolve::module::{ModuleResolveError, resolve_module};
 use crate::resolve::tsconfig::TsConfig;
-use crate::resolve::zod::analyze_zod_in_file;
+use crate::resolve::zod::analyze_zod_program;
 use crate::route::RouteParameter;
 
 /// Result of resolving a DTO type name to its properties.
@@ -41,27 +41,28 @@ pub enum DtoResolution {
     Uncertain(Vec<String>),
 }
 
-/// Context for cross-file DTO resolution during analysis of one controller file.
-pub struct DtoResolver<'a> {
-    /// Project root directory.
-    project_root: &'a Path,
+/// Run-scoped state for cross-file DTO resolution: the module cache, the
+/// resource budgets, and diagnostics.
+///
+/// One context per analysis run. Every Controller file and every route
+/// resolution within the run shares it, so a dependency file is read and
+/// parsed once no matter how many Controllers import it. The context is never
+/// persisted across runs (separate CLI executions, watch batches, and
+/// analysis snapshots each start fresh, which is also what keeps the cache
+/// from ever going stale).
+pub struct ResolverContext {
     /// Canonical project root used for containment validation. `None` when
     /// the root could not be canonicalized; every dependency read is then
     /// rejected conservatively.
     canonical_root: Option<PathBuf>,
-    /// Source directory prefix (e.g., "src").
-    source_prefix: &'a Path,
-    /// Configuration.
-    config: &'a Config,
-    /// Discovery matcher for exclusion checks.
-    matcher: &'a Matcher,
     /// Parsed tsconfig (if any).
     tsconfig: Option<TsConfig>,
-    /// Cache of resolved modules: project-relative path -> ModuleAnalysis.
+    /// Cache of analyzed modules keyed by normalized project-relative path
+    /// (the exact paths `module::resolve_module` produces: explicit `.ts`
+    /// files or an `index.ts`, never directories or bare specifiers).
     module_cache: HashMap<PathBuf, ModuleAnalysis>,
-    /// Resolution stack for cycle detection: (module_path, symbol_name) pairs
-    /// currently being resolved. A cycle is detected when the same pair appears twice.
-    resolution_stack: Vec<(PathBuf, String)>,
+    /// Project root as given (for specifier resolution and diagnostics).
+    project_root: PathBuf,
     /// Import/export edges established by specifier resolution.
     import_edge_count: usize,
     /// Total bytes of resolved dependency sources.
@@ -74,27 +75,9 @@ pub struct DtoResolver<'a> {
     diagnostics: Vec<Diagnostic>,
 }
 
-/// Analysis of one TypeScript module for DTO resolution.
-#[derive(Debug, Clone)]
-struct ModuleAnalysis {
-    /// Imports and exports from the module.
-    imports_exports: ModuleImportsExports,
-    /// Zod schemas defined in this module.
-    zod_schemas: HashMap<String, crate::resolve::zod::ZodSchema>,
-    /// Class/interface/type alias property names (same-file DTO extraction).
-    local_dtos: HashMap<String, Vec<String>>,
-    /// Source text (for re-parsing if needed). Kept for future use.
-    _source: String,
-}
-
-impl<'a> DtoResolver<'a> {
-    /// Create a new resolver for a controller file analysis.
-    pub fn new(
-        project_root: &'a Path,
-        source_prefix: &'a Path,
-        config: &'a Config,
-        matcher: &'a Matcher,
-    ) -> Self {
+impl ResolverContext {
+    /// Create the context for one analysis run over `project_root`.
+    pub fn new(project_root: &Path) -> Self {
         let tsconfig = TsConfig::load(project_root);
         // Canonicalize once: every dependency read is validated against the
         // canonical root so symlinked roots above it cannot relocate the
@@ -113,19 +96,69 @@ impl<'a> DtoResolver<'a> {
             ),
         };
         Self {
-            project_root,
             canonical_root,
-            source_prefix,
-            config,
-            matcher,
             tsconfig,
             module_cache: HashMap::new(),
-            resolution_stack: Vec::new(),
+            project_root: project_root.to_path_buf(),
             import_edge_count: 0,
             total_dependency_bytes: 0,
             dependency_file_count: 0,
             dto_declaration_count: 0,
             diagnostics: initial_diagnostics,
+        }
+    }
+
+    /// All diagnostics collected so far in this run.
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+}
+
+/// Per-controller-file resolver: borrows the run-scoped [`ResolverContext`]
+/// and holds only per-resolution state (the cycle detection stack). Cheap to
+/// create per file or per route.
+pub struct DtoResolver<'ctx> {
+    /// Shared run state.
+    ctx: &'ctx mut ResolverContext,
+    /// Source directory prefix (e.g., "src").
+    source_prefix: &'ctx Path,
+    /// Configuration.
+    config: &'ctx Config,
+    /// Discovery matcher for exclusion checks.
+    matcher: &'ctx Matcher,
+    /// Resolution stack for cycle detection: (module_path, symbol_name) pairs
+    /// currently being resolved. A cycle is detected when the same pair appears twice.
+    resolution_stack: Vec<(PathBuf, String)>,
+}
+
+/// Analysis of one TypeScript module for DTO resolution.
+///
+/// Holds only compact AST-derived data; the parsed AST and the source text
+/// are dropped as soon as the module's analysis has been built.
+#[derive(Debug, Clone)]
+struct ModuleAnalysis {
+    /// Imports and exports from the module.
+    imports_exports: ModuleImportsExports,
+    /// Zod schemas defined in this module.
+    zod_schemas: HashMap<String, crate::resolve::zod::ZodSchema>,
+    /// Class/interface/type alias property names (same-file DTO extraction).
+    local_dtos: HashMap<String, Vec<String>>,
+}
+
+impl<'ctx> DtoResolver<'ctx> {
+    /// Create a resolver for one controller file over the shared run context.
+    pub fn new(
+        ctx: &'ctx mut ResolverContext,
+        source_prefix: &'ctx Path,
+        config: &'ctx Config,
+        matcher: &'ctx Matcher,
+    ) -> Self {
+        Self {
+            ctx,
+            source_prefix,
+            config,
+            matcher,
+            resolution_stack: Vec::new(),
         }
     }
 
@@ -151,9 +184,9 @@ impl<'a> DtoResolver<'a> {
         self.lookup_export(&imported_name, &module_path, 0)
     }
 
-    /// Get all diagnostics collected during resolution.
+    /// Get all diagnostics collected during resolution (the whole run).
     pub fn diagnostics(&self) -> &[Diagnostic] {
-        &self.diagnostics
+        self.ctx.diagnostics()
     }
 
     /// Find the import binding for a local type name in a file.
@@ -185,7 +218,7 @@ impl<'a> DtoResolver<'a> {
         specifier: &str,
         from_file: &Path,
     ) -> Option<PathBuf> {
-        if self.import_edge_count >= MAX_IMPORT_EDGES {
+        if self.ctx.import_edge_count >= MAX_IMPORT_EDGES {
             self.add_diagnostic(
                 Severity::Warning,
                 from_file,
@@ -199,8 +232,8 @@ impl<'a> DtoResolver<'a> {
             self.source_prefix,
             self.config,
             self.matcher,
-            self.tsconfig.as_ref(),
-            self.project_root,
+            self.ctx.tsconfig.as_ref(),
+            &self.ctx.project_root,
         ) {
             Ok(Some(path)) => Some(path),
             Ok(None) => None,
@@ -211,7 +244,7 @@ impl<'a> DtoResolver<'a> {
             Err(ModuleResolveError::Io) => None,
         };
         if resolved.is_some() {
-            self.import_edge_count = self.import_edge_count.saturating_add(1);
+            self.ctx.import_edge_count = self.ctx.import_edge_count.saturating_add(1);
         }
         resolved
     }
@@ -230,12 +263,12 @@ impl<'a> DtoResolver<'a> {
     /// analyzed completely (all counters committed) or not at all.
     fn analyze_module(&mut self, module_path: &Path) -> Option<&ModuleAnalysis> {
         // Check cache first
-        if self.module_cache.contains_key(module_path) {
-            return self.module_cache.get(module_path);
+        if self.ctx.module_cache.contains_key(module_path) {
+            return self.ctx.module_cache.get(module_path);
         }
 
         // Check limits
-        if self.dependency_file_count >= MAX_DEPENDENCY_FILES {
+        if self.ctx.dependency_file_count >= MAX_DEPENDENCY_FILES {
             self.add_diagnostic(
                 Severity::Warning,
                 module_path,
@@ -247,7 +280,7 @@ impl<'a> DtoResolver<'a> {
         // Containment validation: the path must name a regular file under the
         // canonical project root without traversing any symlink. Rejections
         // are conservative (no partial results, no reads outside the root).
-        let canonical_root = self.canonical_root.clone()?;
+        let canonical_root = self.ctx.canonical_root.clone()?;
         let abs_path = match validated_dependency_path(&canonical_root, module_path) {
             Ok(path) => path,
             Err(DependencyPathError::NotFound(_)) => {
@@ -287,7 +320,7 @@ impl<'a> DtoResolver<'a> {
         }
 
         // Check total bytes limit (checked: the aggregate can only grow).
-        let would_total = match self.total_dependency_bytes.checked_add(source.len()) {
+        let would_total = match self.ctx.total_dependency_bytes.checked_add(source.len()) {
             Some(total) => total,
             None => {
                 self.add_diagnostic(
@@ -323,16 +356,18 @@ impl<'a> DtoResolver<'a> {
             extract_imports_exports(&parsed.program)
         };
 
-        let zod_schemas = analyze_zod_in_file(&source);
+        // Single parse: imports/exports, Zod schemas and local DTOs all read
+        // the same program; nothing re-parses the source.
+        let zod_schemas = analyze_zod_program(&parsed.program);
 
         // Extract same-file class/interface properties (like dto_properties in extract.rs)
-        let local_dtos = self.extract_local_dtos(&parsed.program);
+        let local_dtos = extract_local_dtos(&parsed.program);
 
         // Declaration budget: a module that would push the run past
         // MAX_DTO_DECLARATIONS is rejected whole so no partially tracked
         // declaration set is ever published.
         let declarations = local_dtos.len() + zod_schemas.len();
-        let would_declare = match self.dto_declaration_count.checked_add(declarations) {
+        let would_declare = match self.ctx.dto_declaration_count.checked_add(declarations) {
             Some(total) => total,
             None => {
                 self.add_diagnostic(
@@ -356,102 +391,16 @@ impl<'a> DtoResolver<'a> {
             imports_exports,
             zod_schemas,
             local_dtos,
-            _source: source.clone(),
         };
 
-        self.total_dependency_bytes = would_total;
-        self.dependency_file_count = self.dependency_file_count.saturating_add(1);
-        self.dto_declaration_count = would_declare;
+        self.ctx.total_dependency_bytes = would_total;
+        self.ctx.dependency_file_count = self.ctx.dependency_file_count.saturating_add(1);
+        self.ctx.dto_declaration_count = would_declare;
 
-        self.module_cache
+        self.ctx
+            .module_cache
             .insert(module_path.to_path_buf(), analysis);
-        self.module_cache.get(module_path)
-    }
-
-    /// Extract class/interface properties from a module (same logic as dto_properties).
-    /// Handles both plain and exported declarations.
-    fn extract_local_dtos(
-        &self,
-        program: &oxc_ast::ast::Program<'_>,
-    ) -> HashMap<String, Vec<String>> {
-        let mut dtos = HashMap::new();
-        for stmt in &program.body {
-            // Check for exported class/interface: `export class X {}` / `export interface X {}`
-            if let oxc_ast::ast::Statement::ExportNamedDeclaration(export) = stmt
-                && let Some(declaration) = &export.declaration
-            {
-                match declaration {
-                    oxc_ast::ast::Declaration::ClassDeclaration(cls) => {
-                        if let Some(id) = &cls.id {
-                            let mut props = Vec::new();
-                            for elem in &cls.body.body {
-                                if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem
-                                    && let Some(name) = prop.key.static_name()
-                                {
-                                    props.push(name.to_string());
-                                    if props.len() >= MAX_DTO_PROPERTIES {
-                                        break;
-                                    }
-                                }
-                            }
-                            dtos.insert(id.name.to_string(), props);
-                        }
-                        continue;
-                    }
-                    oxc_ast::ast::Declaration::TSInterfaceDeclaration(iface) => {
-                        let mut props = Vec::new();
-                        for sig in &iface.body.body {
-                            if let oxc_ast::ast::TSSignature::TSPropertySignature(prop) = sig
-                                && let Some(name) = prop.key.static_name()
-                            {
-                                props.push(name.to_string());
-                                if props.len() >= MAX_DTO_PROPERTIES {
-                                    break;
-                                }
-                            }
-                        }
-                        dtos.insert(iface.id.name.to_string(), props);
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-            // Check for plain class/interface declarations (not exported)
-            match stmt {
-                oxc_ast::ast::Statement::ClassDeclaration(cls) => {
-                    if let Some(id) = &cls.id {
-                        let mut props = Vec::new();
-                        for elem in &cls.body.body {
-                            if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem
-                                && let Some(name) = prop.key.static_name()
-                            {
-                                props.push(name.to_string());
-                                if props.len() >= MAX_DTO_PROPERTIES {
-                                    break;
-                                }
-                            }
-                        }
-                        dtos.insert(id.name.to_string(), props);
-                    }
-                }
-                oxc_ast::ast::Statement::TSInterfaceDeclaration(iface) => {
-                    let mut props = Vec::new();
-                    for sig in &iface.body.body {
-                        if let oxc_ast::ast::TSSignature::TSPropertySignature(prop) = sig
-                            && let Some(name) = prop.key.static_name()
-                        {
-                            props.push(name.to_string());
-                            if props.len() >= MAX_DTO_PROPERTIES {
-                                break;
-                            }
-                        }
-                    }
-                    dtos.insert(iface.id.name.to_string(), props);
-                }
-                _ => {}
-            }
-        }
-        dtos
+        self.ctx.module_cache.get(module_path)
     }
 
     /// Look up an exported symbol in a module, following re-exports.
@@ -570,12 +519,123 @@ impl<'a> DtoResolver<'a> {
     }
 
     fn add_diagnostic(&mut self, severity: Severity, path: &Path, message: impl Into<String>) {
-        self.diagnostics.push(Diagnostic::new(
+        self.ctx.diagnostics.push(Diagnostic::new(
             severity,
             Some(path.to_path_buf()),
             message.into(),
         ));
     }
+}
+
+/// Extract class/interface property names from a program: exported and plain
+/// top-level declarations, source order, computed names skipped, at most
+/// [`MAX_DTO_PROPERTIES`] per declaration.
+fn extract_local_dtos(program: &oxc_ast::ast::Program<'_>) -> HashMap<String, Vec<String>> {
+    let mut dtos = HashMap::new();
+    for stmt in &program.body {
+        // Check for exported class/interface: `export class X {}` / `export interface X {}`
+        if let oxc_ast::ast::Statement::ExportNamedDeclaration(export) = stmt
+            && let Some(declaration) = &export.declaration
+        {
+            match declaration {
+                oxc_ast::ast::Declaration::ClassDeclaration(cls) => {
+                    if let Some(id) = &cls.id {
+                        let mut props = Vec::new();
+                        for elem in &cls.body.body {
+                            if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem
+                                && let Some(name) = prop.key.static_name()
+                            {
+                                props.push(name.to_string());
+                                if props.len() >= MAX_DTO_PROPERTIES {
+                                    break;
+                                }
+                            }
+                        }
+                        dtos.insert(id.name.to_string(), props);
+                    }
+                    continue;
+                }
+                oxc_ast::ast::Declaration::TSInterfaceDeclaration(iface) => {
+                    let mut props = Vec::new();
+                    for sig in &iface.body.body {
+                        if let oxc_ast::ast::TSSignature::TSPropertySignature(prop) = sig
+                            && let Some(name) = prop.key.static_name()
+                        {
+                            props.push(name.to_string());
+                            if props.len() >= MAX_DTO_PROPERTIES {
+                                break;
+                            }
+                        }
+                    }
+                    dtos.insert(iface.id.name.to_string(), props);
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        // Check for plain class/interface declarations (not exported)
+        match stmt {
+            oxc_ast::ast::Statement::ClassDeclaration(cls) => {
+                if let Some(id) = &cls.id {
+                    let mut props = Vec::new();
+                    for elem in &cls.body.body {
+                        if let oxc_ast::ast::ClassElement::PropertyDefinition(prop) = elem
+                            && let Some(name) = prop.key.static_name()
+                        {
+                            props.push(name.to_string());
+                            if props.len() >= MAX_DTO_PROPERTIES {
+                                break;
+                            }
+                        }
+                    }
+                    dtos.insert(id.name.to_string(), props);
+                }
+            }
+            oxc_ast::ast::Statement::TSInterfaceDeclaration(iface) => {
+                let mut props = Vec::new();
+                for sig in &iface.body.body {
+                    if let oxc_ast::ast::TSSignature::TSPropertySignature(prop) = sig
+                        && let Some(name) = prop.key.static_name()
+                    {
+                        props.push(name.to_string());
+                        if props.len() >= MAX_DTO_PROPERTIES {
+                            break;
+                        }
+                    }
+                }
+                dtos.insert(iface.id.name.to_string(), props);
+            }
+            _ => {}
+        }
+    }
+    dtos
+}
+
+/// Seed the run cache with a module that was already parsed by the extractor
+/// (the controller file itself): its AST-derived metadata is computed from the
+/// program at hand instead of re-reading and re-parsing the file from disk.
+///
+/// Seeding performs no I/O, so it consumes no dependency budget; the
+/// controller file is already bounded by the extraction-time source cap, and
+/// its declarations still count toward the run's declaration budget. A module
+/// already in the cache (analyzed as a dependency of an earlier controller)
+/// is left untouched.
+pub fn seed_module_from_program(
+    ctx: &mut ResolverContext,
+    module_path: &Path,
+    program: &oxc_ast::ast::Program<'_>,
+) {
+    if ctx.module_cache.contains_key(module_path) {
+        return;
+    }
+    let analysis = ModuleAnalysis {
+        imports_exports: extract_imports_exports(program),
+        zod_schemas: analyze_zod_program(program),
+        local_dtos: extract_local_dtos(program),
+    };
+    let declarations = analysis.local_dtos.len() + analysis.zod_schemas.len();
+    ctx.dto_declaration_count = ctx.dto_declaration_count.saturating_add(declarations);
+    ctx.module_cache.insert(module_path.to_path_buf(), analysis);
 }
 
 /// Result of resolving cross-file DTOs for a route's body parameters.
@@ -588,9 +648,13 @@ pub struct CrossFileDtoResolutions {
 }
 
 /// Integrate cross-file DTO resolution into the extractor.
-/// This is called from `nest/extract.rs` after same-file DTO extraction.
+///
+/// Called from `nest/extract.rs` after same-file DTO extraction, with the
+/// run-scoped context so repeated resolutions share the module cache and
+/// budgets. Only the diagnostics emitted by this call are returned; the
+/// context keeps accumulating for the rest of the run.
 pub fn resolve_cross_file_dtos(
-    project_root: &Path,
+    ctx: &mut ResolverContext,
     source_prefix: &Path,
     config: &Config,
     matcher: &Matcher,
@@ -598,7 +662,8 @@ pub fn resolve_cross_file_dtos(
     body_params: &[RouteParameter],
     same_file_dtos: &HashMap<String, Vec<String>>,
 ) -> CrossFileDtoResolutions {
-    let mut resolver = DtoResolver::new(project_root, source_prefix, config, matcher);
+    let diagnostics_before = ctx.diagnostics.len();
+    let mut resolver = DtoResolver::new(ctx, source_prefix, config, matcher);
     let mut resolutions = HashMap::new();
 
     for param in body_params {
@@ -625,7 +690,7 @@ pub fn resolve_cross_file_dtos(
             }
             DtoResolution::Uncertain(props) => {
                 resolutions.insert(param.index, DtoResolution::Uncertain(props));
-                resolver.diagnostics.push(Diagnostic::new(
+                resolver.ctx.diagnostics.push(Diagnostic::new(
                     Severity::Warning,
                     Some(controller_file.to_path_buf()),
                     format!("Zod schema resolution for {type_name} is uncertain due to unsupported transformations; using available properties"),
@@ -635,9 +700,14 @@ pub fn resolve_cross_file_dtos(
         }
     }
 
+    let diagnostics = resolver
+        .ctx
+        .diagnostics
+        .drain(diagnostics_before..)
+        .collect();
     CrossFileDtoResolutions {
         resolutions,
-        diagnostics: resolver.diagnostics,
+        diagnostics,
     }
 }
 
@@ -685,7 +755,8 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution =
             resolver.resolve_type("CreateUserDto", Path::new("src/users/users.controller.ts"));
         assert_eq!(
@@ -715,7 +786,8 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution =
             resolver.resolve_type("UserDto", Path::new("src/users/users.controller.ts"));
         assert_eq!(resolution, DtoResolution::Fields(vec!["name".into()]));
@@ -746,7 +818,8 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution =
             resolver.resolve_type("CreateUserDto", Path::new("src/users/users.controller.ts"));
         assert_eq!(
@@ -781,7 +854,8 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution =
             resolver.resolve_type("CreateUserDto", Path::new("src/users/users.controller.ts"));
         assert_eq!(
@@ -821,14 +895,15 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("Dto", Path::new("src/users/users.controller.ts"));
         // Should be Unknown due to depth limit
         assert_eq!(resolution, DtoResolution::Unknown);
         // Should have a warning diagnostic
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("re-export depth"))
         );
@@ -855,12 +930,13 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("A", Path::new("src/users/users.controller.ts"));
         assert_eq!(resolution, DtoResolution::Unknown);
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("circular"))
         );
@@ -899,7 +975,8 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution =
             resolver.resolve_type("CreateUserDto", Path::new("src/users/users.controller.ts"));
         assert_eq!(
@@ -941,7 +1018,8 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("Dto", Path::new("src/users/users.controller.ts"));
         assert_eq!(resolution, DtoResolution::Fields(vec!["a".into()]));
     }
@@ -962,7 +1040,8 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution =
             resolver.resolve_type("LateDto", Path::new("src/users/users.controller.ts"));
         // A specifier that matches no project file resolves silently to
@@ -997,12 +1076,13 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
         assert_eq!(resolution, DtoResolution::Unknown);
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("not a regular file"))
         );
@@ -1036,14 +1116,15 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
         // The dependency is never read: the result is Unknown, not the
         // properties of the out-of-root file.
         assert_eq!(resolution, DtoResolution::Unknown);
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("symlinked path component"))
         );
@@ -1069,12 +1150,13 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
         assert_eq!(resolution, DtoResolution::Unknown);
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("symlinked path component"))
         );
@@ -1107,13 +1189,14 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
         // A loop is just a symlink chain: rejected without being followed.
         assert_eq!(resolution, DtoResolution::Unknown);
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("symlinked path component"))
         );
@@ -1139,12 +1222,13 @@ export class UsersController {
         )
         .unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
         assert_eq!(resolution, DtoResolution::Unknown);
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("not a regular file"))
         );
@@ -1161,7 +1245,8 @@ export class UsersController {
             )
             .unwrap();
         }
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         for i in 0..MAX_DEPENDENCY_FILES {
             let path = PathBuf::from(format!("src/d/m{i}.ts"));
             assert!(
@@ -1178,7 +1263,7 @@ export class UsersController {
         );
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("dependency file limit"))
         );
@@ -1195,7 +1280,8 @@ export class UsersController {
         let beyond = format!("//{}\n", "x".repeat(MAX_SOURCE_BYTES - 2));
         fs::write(root.join("src/d/beyond.ts"), &beyond).unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         assert!(resolver.analyze_module(Path::new("src/d/at.ts")).is_some());
         assert!(
             resolver
@@ -1204,7 +1290,7 @@ export class UsersController {
         );
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("too large"))
         );
@@ -1219,7 +1305,8 @@ export class UsersController {
         for i in 0..16 {
             fs::write(root.join("src/d").join(format!("f{i}.ts")), &full).unwrap();
         }
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         for i in 0..16 {
             let path = PathBuf::from(format!("src/d/f{i}.ts"));
             assert!(
@@ -1237,7 +1324,7 @@ export class UsersController {
         );
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("total dependency bytes limit"))
         );
@@ -1262,7 +1349,8 @@ export class UsersController {
         // The module that would exceed the budget is rejected whole.
         fs::write(root.join("src/d/one.ts"), schemas(1)).unwrap();
 
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         assert!(
             resolver
                 .analyze_module(Path::new("src/d/half0.ts"))
@@ -1276,13 +1364,13 @@ export class UsersController {
         assert!(resolver.analyze_module(Path::new("src/d/one.ts")).is_none());
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("DTO declaration limit"))
         );
         // The rejected module's declarations were not partially committed:
         // the budget stays exactly at the limit.
-        assert_eq!(resolver.dto_declaration_count, MAX_DTO_DECLARATIONS);
+        assert_eq!(resolver.ctx.dto_declaration_count, MAX_DTO_DECLARATIONS);
     }
 
     #[test]
@@ -1292,7 +1380,8 @@ export class UsersController {
         // must name src/users/d/x.ts.
         fs::create_dir_all(root.join("src/users/d")).unwrap();
         fs::write(root.join("src/users/d/x.ts"), "export class X {}").unwrap();
-        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
         let from = Path::new("src/users/users.controller.ts");
         for _ in 0..MAX_IMPORT_EDGES {
             assert!(
@@ -1309,9 +1398,146 @@ export class UsersController {
         );
         assert!(
             resolver
-                .diagnostics
+                .diagnostics()
                 .iter()
                 .any(|d| d.message.contains("import edge limit"))
         );
+    }
+
+    #[test]
+    fn run_scoped_context_shares_modules_across_controllers() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/shared")).unwrap();
+        fs::create_dir_all(root.join("src/a")).unwrap();
+        fs::create_dir_all(root.join("src/b")).unwrap();
+        fs::write(
+            root.join("src/shared/shared.dto.ts"),
+            "export class Shared { x: string; }",
+        )
+        .unwrap();
+        for dir in ["a", "b"] {
+            fs::write(
+                root.join(format!("src/{dir}/{dir}.controller.ts")),
+                format!(
+                    "import {{ Shared }} from '../shared/shared.dto';\n\
+                     export class {dir}Uses {{}}\n"
+                ),
+            )
+            .unwrap();
+        }
+
+        let mut ctx = ResolverContext::new(&root);
+        let first = {
+            let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
+            resolver.resolve_type("Shared", Path::new("src/a/a.controller.ts"))
+        };
+        assert_eq!(first, DtoResolution::Fields(vec!["x".into()]));
+        let files_after_first = ctx.dependency_file_count;
+
+        // A second controller over the SAME run context: the shared DTO
+        // module is served from the cache; only the new controller file is
+        // read.
+        let second = {
+            let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
+            resolver.resolve_type("Shared", Path::new("src/b/b.controller.ts"))
+        };
+        assert_eq!(second, DtoResolution::Fields(vec!["x".into()]));
+        assert_eq!(ctx.dependency_file_count, files_after_first + 1);
+        assert_eq!(ctx.module_cache.len(), 3);
+    }
+
+    #[test]
+    fn cache_does_not_leak_across_runs() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/users/dto")).unwrap();
+        fs::write(
+            root.join("src/users/dto/evolving.ts"),
+            "export class Evolving { a: string; }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { Evolving } from './dto/evolving';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: Evolving) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut first_run = ResolverContext::new(&root);
+        let resolved = {
+            let mut resolver =
+                DtoResolver::new(&mut first_run, Path::new("src"), &config, &matcher);
+            resolver.resolve_type("Evolving", Path::new("src/users/users.controller.ts"))
+        };
+        assert_eq!(resolved, DtoResolution::Fields(vec!["a".into()]));
+
+        // The dependency changes on disk. A new run gets a fresh context and
+        // must see the new shape, never the cached one.
+        fs::write(
+            root.join("src/users/dto/evolving.ts"),
+            "export class Evolving { a: string; b: number; }",
+        )
+        .unwrap();
+        let mut second_run = ResolverContext::new(&root);
+        let resolved = {
+            let mut resolver =
+                DtoResolver::new(&mut second_run, Path::new("src"), &config, &matcher);
+            resolver.resolve_type("Evolving", Path::new("src/users/users.controller.ts"))
+        };
+        assert_eq!(
+            resolved,
+            DtoResolution::Fields(vec!["a".into(), "b".into()])
+        );
+    }
+
+    #[test]
+    fn malformed_dependency_retries_after_repair() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/users/dto")).unwrap();
+        fs::write(
+            root.join("src/users/dto/broken.ts"),
+            "export classs Broken {",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { Broken } from './dto/broken';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: Broken) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut ctx = ResolverContext::new(&root);
+        let resolved = {
+            let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
+            resolver.resolve_type("Broken", Path::new("src/users/users.controller.ts"))
+        };
+        assert_eq!(resolved, DtoResolution::Unknown);
+        assert!(
+            ctx.diagnostics()
+                .iter()
+                .any(|d| d.message.contains("failed to parse"))
+        );
+
+        // A malformed dependency is not cached: repairing the file makes the
+        // next resolution in the same run succeed.
+        fs::write(
+            root.join("src/users/dto/broken.ts"),
+            "export class Broken { id: string; }",
+        )
+        .unwrap();
+        let resolved = {
+            let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
+            resolver.resolve_type("Broken", Path::new("src/users/users.controller.ts"))
+        };
+        assert_eq!(resolved, DtoResolution::Fields(vec!["id".into()]));
     }
 }

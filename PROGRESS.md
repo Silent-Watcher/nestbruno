@@ -266,6 +266,43 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
 - Residual accepted race (validation and read are separate operations) is
   documented in the module doc and `docs/security.md`, not claimed closed.
 
+#### Milestone 11.1.2 — Run-scoped resolver context, caching and single parsing (completed 2026-11-10)
+
+- **Run-scoped context** (`ResolverContext` in `src/resolve/mod.rs`): module
+  cache, all resource budgets, and diagnostics now live one-per-analysis-run
+  (`analyze_each` creates it); `DtoResolver` became a cheap borrow holding
+  only the cycle-detection stack. Dependency files are read and parsed once
+  per run regardless of how many controllers or routes import them. Fresh
+  context per run/watch-batch keeps the cache from going stale (pinned by
+  `cache_does_not_leak_across_runs`).
+- **Single parsing**: `zod::analyze_zod_program` analyzes an existing program
+  (dependency modules parsed once, not twice); `seed_module_from_program`
+  inserts the controller file's already-parsed AST metadata into the run
+  cache, so the controller is never re-read/re-parsed for resolution;
+  `ModuleAnalysis` dropped its retained source text. Cache keys are the
+  normalized project-relative paths the module resolver produces; unreadable
+  and malformed dependencies are not cached (repairs visible to retries,
+  pinned by tests). Budgets remain per-run as documented; note this tightens
+  them versus the old per-route counters (documented in CHANGELOG).
+- **Pipeline threading**: the four optional parameters of
+  `extract_controllers`/`analyze_content` became one `ProjectContext`
+  carrying the resolver context; `run_analysis`'s closure bound relaxed
+  `Fn + Send + Sync` → `FnMut + Send` (single worker thread).
+- **Benchmarks**: new `analyze_one_run` harness; added
+  `extract_cross_file/8_controllers_1_shared_dto` (79 µs),
+  `1_controller_8_routes_shared_dto` (132 µs), `4_hops_reexport_chain`
+  (26 µs), `8_controllers_8_dtos_each` (569 µs, 64 dependency files).
+  Comparison against a fresh pre-change baseline (Criterion, same machine):
+  `extract_cross_file/1_controller_1_shared_dto` 40.4 µs → 30.2 µs median
+  (−35.3%, the eliminated second parse). A back-to-back stash A/B of the
+  unchanged no-context path `extract/100_controllers` measured 533 µs →
+  554 µs (+3.9%) with identical logic on that path — attributed to
+  code-layout shift and recorded in the CHANGELOG rather than claimed as
+  noise.
+- Tests: +3 (cross-controller cache sharing with budget accounting, no
+  cross-run cache leakage, malformed-then-repaired dependency retry).
+  Gates: fmt + clippy `-D warnings` clean; 562 tests pass (was 559).
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

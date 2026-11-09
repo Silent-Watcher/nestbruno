@@ -210,16 +210,16 @@ that is reported, not silently rewritten.
 ## Benchmarks
 
 Criterion component benchmarks ship in `benches/pipeline.rs`. Medians,
-measured 2026-11-09 (release profile; Intel i7-1255U, Linux, rustc 1.99.0,
-NestBruno v0.2.0 plus the cross-file benchmark):
+measured 2026-11-10 (release profile; Intel i7-1255U, Linux, rustc 1.99.0):
 
 | Benchmark | Median | Workload |
 | --- | ---: | --- |
-| `extract_cross_file/1_controller_1_shared_dto` | 40 us | One controller (3 routes); the `@Post` body type resolved from a DTO class in a separate file through a relative import |
-| `extract/100_controllers` | 540 us | 100 controllers / 300 routes extracted from a single ~24 KiB source |
+| `extract_cross_file/1_controller_1_shared_dto` | 30 us | One controller (3 routes); the `@Post` body type resolved from a DTO class in a separate file through a relative import |
+| `extract_cross_file/8_controllers_1_shared_dto` | 79 us | Eight controllers sharing one DTO through a single run-scoped resolver context |
+| `extract/100_controllers` | 556 us | 100 controllers / 300 routes extracted from a single ~24 KiB source |
 | `generate/100_controllers_300_routes` | 2.5 ms | Pure planner: route IR to 300 desired `.bru` requests |
-| `discover/1000_files_334_controllers` | 11.8 ms | Walk of a 1,000-file tree with `node_modules` noise |
-| `sync/no_op_750_requests` | 13.4 ms | 750-request collection, nothing changed |
+| `discover/1000_files_334_controllers` | 11.3 ms | Walk of a 1,000-file tree with `node_modules` noise |
+| `sync/no_op_750_requests` | 13.0 ms | 750-request collection, nothing changed |
 
 These are per-stage measurements, not wall-clock timings of a full run;
 absolute values vary with hardware and cache state, while the scaling

@@ -60,9 +60,8 @@ use oxc_ast::ast::{
 use oxc_parser::Parser;
 use oxc_span::{SourceType, Span};
 
-use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
-use crate::discovery::Matcher;
+use crate::nest::ProjectContext;
 use crate::resolve::limits::MAX_DTO_PROPERTIES;
 use crate::resolve::resolve_cross_file_dtos;
 use crate::route::{
@@ -100,16 +99,13 @@ pub const PARSER_STACK_BYTES: usize = MAX_SOURCE_BYTES * STACK_BYTES_PER_SOURCE_
 /// Must run on a stack of at least [`PARSER_STACK_BYTES`] unless the input is
 /// trusted to be shallowly nested.
 ///
-/// If `project_root`, `source_prefix`, `config`, and `matcher` are provided,
-/// cross-file DTO resolution is performed for `@Body` parameters whose type
-/// was not resolved from same-file DTOs.
+/// When `project` is provided, cross-file DTO resolution is performed for
+/// `@Body` parameters whose type was not resolved from same-file DTOs, over
+/// the run-scoped resolver context it carries.
 pub fn extract_controllers(
     file: &Path,
     source: &str,
-    project_root: Option<&Path>,
-    source_prefix: Option<&Path>,
-    config: Option<&Config>,
-    matcher: Option<&Matcher>,
+    project: Option<&mut ProjectContext<'_>>,
 ) -> FileAnalysis {
     if source.len() > MAX_SOURCE_BYTES {
         return FileAnalysis {
@@ -173,9 +169,11 @@ pub fn extract_controllers(
     let mut file_analysis = extractor.finish(controllers);
 
     // Cross-file DTO resolution for routes with Unknown body shape
-    if let (Some(project_root), Some(source_prefix), Some(config), Some(matcher)) =
-        (project_root, source_prefix, config, matcher)
-    {
+    if let Some(project) = project {
+        // The extractor already parsed this file: seed the run cache with its
+        // AST-derived metadata so the resolver never re-reads or re-parses
+        // the controller file for its own imports.
+        crate::resolve::seed_module_from_program(&mut *project.resolver, file, &parsed.program);
         // For each route with Unknown body and @Body parameters, resolve cross-file DTOs
         for controller in &mut file_analysis.controllers {
             for route in &mut controller.routes {
@@ -197,10 +195,10 @@ pub fn extract_controllers(
 
                 // Resolve cross-file DTOs for this route's body parameters
                 let resolutions = resolve_cross_file_dtos(
-                    project_root,
-                    source_prefix,
-                    config,
-                    matcher,
+                    &mut *project.resolver,
+                    project.source_prefix,
+                    project.config,
+                    project.matcher,
                     file,
                     &body_params,
                     &same_file_dtos,

@@ -194,13 +194,18 @@ does not include `node_modules` or general TypeScript compiler
 compatibility.
 
 Verified guarantees: explicit `(module, symbol)` cycle detection; enforced
-budgets (512 dependency files, 4 MiB aggregate source, 256 KiB per file,
-four re-export hops, 64 properties); exported-binding-only resolution;
-`Uncertain` → `BodyShape::Unknown`.
+budgets (512 dependency files, 4,096 import edges, 4 MiB aggregate source,
+1,024 DTO declarations, 256 KiB per file, four re-export hops, 64
+properties — all with reject-the-exceeding-operation semantics); exported-
+binding-only resolution; `Uncertain` → `BodyShape::Unknown`. Resolution is
+run-scoped: one `ResolverContext` per analysis run shares the module cache,
+so each dependency is read and parsed once, and the extractor seeds the
+cache with the controller file's already-parsed program (`src/resolve/
+containment.rs` gates every dependency read on canonical-root, symlink-free,
+regular-file containment).
 
-Known deferred edges (tracked in `KNOWN_ISSUES.md`): lexical-only path
-containment (no canonical symlink validation), per-route resolver caching,
-single-parse module analysis, Watch Mode dependency invalidation, and
+Known deferred edges (tracked in `KNOWN_ISSUES.md`): the validation/read
+race on concurrently modified trees, Watch Mode dependency invalidation, and
 Git-index-only staged dependency resolution (staged analysis intentionally
 resolves same-file DTOs only). Full details are in
 [Phase 11](phases/phase-11-cross-file-dto-resolution.md).

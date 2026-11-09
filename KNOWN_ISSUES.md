@@ -105,6 +105,18 @@ Resolved and verified:
   only). Counters use checked/saturating arithmetic; boundary tests cover
   each limit at the exact value and immediately beyond.
 
+- ~~Duplicate parsing~~ — resolved 2026-11-10 (Milestone 11.1.2): imports/
+  exports, Zod schemas and local DTOs read one oxc parse per module
+  (`zod::analyze_zod_program`); the extractor seeds the run cache with the
+  already-parsed controller program (`seed_module_from_program`);
+  `ModuleAnalysis` no longer retains source text.
+- ~~Cache scope too narrow~~ — resolved 2026-11-10 (Milestone 11.1.2): one
+  `ResolverContext` per analysis run (`analyze_each`); module cache,
+  budgets and diagnostics are shared across Controllers and routes; cache
+  keys are the normalized project-relative paths the module resolver
+  produces; failures (unreadable/malformed) are not cached and retries see
+  repairs (pinned by tests).
+
 Still open (deferred; the accepted limitations of the shipped feature):
 
 - **Validation/read race in dependency containment.** Milestone 11.1.1
@@ -115,13 +127,6 @@ Still open (deferred; the accepted limitations of the shipped feature):
   executed or written based on dependency files. Documented in
   `resolve/containment.rs` and `docs/security.md`; not claimable as a
   closed TOCTOU window.
-- **Duplicate parsing.** The controller is parsed by `extract.rs` and again
-  by the resolver for imports; each dependency module is parsed twice
-  (module analysis + Zod analysis). A `ModuleAnalysis` source clone is
-  retained without a consumer.
-- **Cache scope too narrow.** A fresh `DtoResolver` is built per route, so
-  shared dependency files are re-read/re-parsed across routes and
-  Controllers within one run.
 - **Watch dependency changes not wired.** `Workspace::refresh()` only
   schedules Matcher-relevant (controller-candidate) files; editing an
   imported DTO file does not invalidate dependent Controllers. A reverse
