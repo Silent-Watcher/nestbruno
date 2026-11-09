@@ -64,7 +64,9 @@ proposal that is still present in the original handoff history.
    scan every `.ts` file, and do not turn DTO files into Controller candidates.
 2. **Local modules only.** Support relative imports and the approved limited
    `tsconfig.json` subset: `baseUrl`, `paths`, and simple one-wildcard mappings.
-   Resolve explicit/implicit `.ts` and directory `index.ts` forms. Parse JSONC
+   Resolve explicit/implicit `.ts` and directory `index.ts` forms, plus
+   NodeNext emitted specifier extensions (`.js`/`.mjs`/`.cjs` map to
+   `.ts`/`.mts`/`.cts` sources; fixed after v0.2.0). Parse JSONC
    statically. Do not implement `extends`, `rootDirs`, arbitrary package
    resolution, `package.json` exports, or `node_modules` traversal in this
    phase.

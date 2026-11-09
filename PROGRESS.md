@@ -213,6 +213,20 @@ Completed after verification (2026-11-09):
 - User-facing documentation: `website/guide/dto-resolution.md`,
   updated landing page, limitations, safety and phase pages.
 
+### Post-release fix (2026-11-09)
+
+- **NodeNext import specifiers.** Projects with
+  `moduleResolution: "NodeNext"` must write the emitted extension in
+  relative specifiers (`import { X } from './x.dto.js'`). `resolve/module.rs`
+  only tried `<path>.ts` as-is, `<path>.ts` appended, and `index.ts`, so such
+  specifiers resolved to nothing and every cross-file DTO degraded to
+  `BodyShape::Unknown` (observed on a real NestJS monorepo: `z.infer` DTOs
+  imported as `.js` produced empty `{}` bodies). Fixed by mapping
+  `.js`/`.mjs`/`.cjs` specifiers to `.ts`/`.mts`/`.cts` candidates before the
+  existing forms; unit tests added in `resolve::module::tests`. 539 tests
+  pass; fmt and clippy `-D warnings` clean. Verified end-to-end on the same
+  project (`sync` now emits the expected body skeletons).
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

@@ -53,7 +53,8 @@
 
 - **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
   v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
-  paths, `tsconfig` `baseUrl`/`paths` (single-wildcard), `index.ts`,
+  paths (including NodeNext `.js`/`.mjs`/`.cjs` specifier extensions),
+  `tsconfig` `baseUrl`/`paths` (single-wildcard), `index.ts`,
   named/type-only/aliased imports, re-exports (four hops), exported
   class/interface DTOs, and a conservative Zod subset (`z.object`,
   `z.infer`, `createZodDto` with import provenance, statically provable

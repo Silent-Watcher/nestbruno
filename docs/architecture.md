@@ -184,7 +184,9 @@ The resolver never broadens discovery to every `.ts` file. It reads a local
 dependency only after following a supported import reachable from a
 Controller body type. The supported subset: relative imports, simple
 `tsconfig` `baseUrl` / `paths` mappings (single `*` per pattern), `.ts`
-extension variants, `index.ts`, named/type-only/aliased imports, named and
+extension variants plus NodeNext emitted extensions (`.js`/`.mjs`/`.cjs`
+specifiers map to `.ts`/`.mts`/`.cts` sources), `index.ts`,
+named/type-only/aliased imports, named and
 star re-exports (four hops maximum), exported class/interface DTOs, and a
 conservative set of Zod schema patterns (`z.object`, `z.infer`,
 `createZodDto` with provenance, statically provable transformations). It

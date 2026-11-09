@@ -5,6 +5,8 @@
 //! - tsconfig `paths` with wildcards and exact matches
 //! - tsconfig `baseUrl`
 //! - Implicit `.ts` extension and `index.ts` for directories
+//! - NodeNext-style emitted extensions (`./x.js` -> `./x.ts`, `.mjs` ->
+//!   `.mts`, `.cjs` -> `.cts`), as required by `moduleResolution: "NodeNext"`
 //! - Project-root containment and exclusion checks
 
 use std::path::{Component, Path, PathBuf};
@@ -128,12 +130,22 @@ fn resolve_bare(
 }
 
 /// Try file candidates for a directory or file path.
-/// Order: `<path>.ts`, `<path>/index.ts`, `<path>` (if ends with .ts).
+/// Order: NodeNext-emitted extensions mapped to TS sources (`.js` -> `.ts`,
+/// `.mjs` -> `.mts`, `.cjs` -> `.cts`), then `<path>.ts`, `<path>/index.ts`,
+/// `<path>` (if ends with .ts).
 fn try_file_candidates(
     path: &Path,
     project_root: &Path,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     let path_str = path.to_string_lossy();
+
+    // With `moduleResolution: "NodeNext"`, specifiers must name the emitted
+    // file (`./x.js`); the analyzed source is `./x.ts` behind it.
+    for mapped in mapped_ts_sources(&path_str) {
+        if project_root.join(&mapped).exists() {
+            return Ok(Some(PathBuf::from(mapped)));
+        }
+    }
 
     // Construct absolute path for existence check
     let abs_path = project_root.join(path);
@@ -158,6 +170,23 @@ fn try_file_candidates(
     }
 
     Ok(None)
+}
+
+/// Map a NodeNext-style emitted extension to the TypeScript sources that may
+/// sit behind it, in lookup order: `x.js` -> `x.ts`, `x.mjs` -> `x.mts`,
+/// `x.cjs` -> `x.cts`. Empty for any other extension. `x.tsx` behind `x.js`
+/// is deliberately not attempted: the pipeline only analyzes `.ts` sources.
+fn mapped_ts_sources(path: &str) -> Vec<String> {
+    let (stem, source_ext) = if let Some(stem) = path.strip_suffix(".js") {
+        (stem, ".ts")
+    } else if let Some(stem) = path.strip_suffix(".mjs") {
+        (stem, ".mts")
+    } else if let Some(stem) = path.strip_suffix(".cjs") {
+        (stem, ".cts")
+    } else {
+        return Vec::new();
+    };
+    vec![format!("{stem}{source_ext}")]
 }
 
 /// Check if a project-relative path is within the project root (no `..` escape).
@@ -406,6 +435,96 @@ mod tests {
         )
         .unwrap();
         // Should be None because dist is excluded
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn resolves_nodenext_js_extension_to_ts() {
+        let (_dir, root, config, matcher, tsconfig) = setup_test_tree();
+        fs::create_dir_all(root.join("src/users/dto")).unwrap();
+        fs::write(
+            root.join("src/users/dto/create-user.dto.ts"),
+            "export class C {}",
+        )
+        .unwrap();
+
+        let from = Path::new("src/users/users.controller.ts");
+        let resolved = resolve_module(
+            "./dto/create-user.dto.js",
+            from,
+            Path::new("src"),
+            &config,
+            &matcher,
+            Some(&tsconfig),
+            &root,
+        )
+        .unwrap();
+        assert_eq!(
+            resolved,
+            Some(PathBuf::from("src/users/dto/create-user.dto.ts"))
+        );
+    }
+
+    #[test]
+    fn resolves_nodenext_js_extension_via_index_ts() {
+        let (_dir, root, config, matcher, tsconfig) = setup_test_tree();
+        fs::create_dir_all(root.join("src/users/dto")).unwrap();
+        fs::write(root.join("src/users/dto/index.ts"), "export class C {}").unwrap();
+
+        let from = Path::new("src/users/users.controller.ts");
+        let resolved = resolve_module(
+            "./dto/index.js",
+            from,
+            Path::new("src"),
+            &config,
+            &matcher,
+            Some(&tsconfig),
+            &root,
+        )
+        .unwrap();
+        assert_eq!(resolved, Some(PathBuf::from("src/users/dto/index.ts")));
+    }
+
+    #[test]
+    fn resolves_nodenext_mjs_and_cjs_extensions() {
+        let (_dir, root, config, matcher, tsconfig) = setup_test_tree();
+        fs::create_dir_all(root.join("src/users")).unwrap();
+        fs::write(root.join("src/users/legacy.mts"), "export class M {}").unwrap();
+        fs::write(root.join("src/users/commonjs.cts"), "export class C {}").unwrap();
+
+        let from = Path::new("src/users/users.controller.ts");
+        for (specifier, expected) in [
+            ("./legacy.mjs", "src/users/legacy.mts"),
+            ("./commonjs.cjs", "src/users/commonjs.cts"),
+        ] {
+            let resolved = resolve_module(
+                specifier,
+                from,
+                Path::new("src"),
+                &config,
+                &matcher,
+                Some(&tsconfig),
+                &root,
+            )
+            .unwrap();
+            assert_eq!(resolved, Some(PathBuf::from(expected)));
+        }
+    }
+
+    #[test]
+    fn js_extension_without_ts_source_is_none() {
+        let (_dir, root, config, matcher, tsconfig) = setup_test_tree();
+        let from = Path::new("src/users/users.controller.ts");
+        let resolved = resolve_module(
+            "./missing.dto.js",
+            from,
+            Path::new("src"),
+            &config,
+            &matcher,
+            Some(&tsconfig),
+            &root,
+        )
+        .unwrap();
         assert_eq!(resolved, None);
     }
 }

@@ -69,6 +69,9 @@ its import. Supported module forms:
 
 - relative imports: `./dto/create-user.dto`, `../shared/dto`, with or
   without the `.ts` extension;
+- NodeNext-style emitted extensions in specifiers: `./dto/create-user.dto.js`
+  resolves to `create-user.dto.ts` (likewise `.mjs` → `.mts`, `.cjs` →
+  `.cts`) — the form `moduleResolution: "NodeNext"` requires;
 - directory imports resolved through `index.ts`;
 - `tsconfig.json` `baseUrl` and `paths` — patterns with exactly one `*`
   (e.g. `"@dto/*": ["src/dto/*"]`); the first target of each mapping is

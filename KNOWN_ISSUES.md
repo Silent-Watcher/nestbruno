@@ -86,6 +86,11 @@ Resolved and verified:
   import is required (`does_not_recognize_unimported_create_zod_dto`).
 - ~~Benchmark call sites~~ — updated and executed (`cargo bench` run
   2026-11-09; cross-file resolution benchmark added: ~40 µs median).
+- ~~NodeNext `.js` import specifiers~~ — fixed 2026-11-09 (post-v0.2.0):
+  `resolve/module.rs` maps `.js`/`.mjs`/`.cjs` specifiers to
+  `.ts`/`.mts`/`.cts` sources. Found via a real NestJS project
+  (`moduleResolution: "NodeNext"`) where `z.infer` DTOs imported as `.js`
+  resolved to nothing and bodies stayed `BodyShape::Unknown`.
 
 Still open (deferred; the accepted limitations of the shipped feature):
 
@@ -117,6 +122,13 @@ Still open (deferred; the accepted limitations of the shipped feature):
   recognized (only a single transformation applied to a base schema
   identifier); `z.infer` resolves only against same-file const schemas
   declared earlier; namespace-imported `createZodDto` is not recognized.
+  A field whose schema is unresolved does not block object-property-name
+  extraction (`z.object` records names regardless of field values).
+- **package.json `imports` subpaths not resolved.** Specifiers like
+  `#src/shared/x.js` (the Node `imports` field) fall through module
+  resolution to the node_modules deferral and resolve to nothing. Harmless
+  when they import pipes/services; a DTO imported through a `#` subpath
+  would stay `BodyShape::Unknown`.
 - **Test coverage is not acceptance coverage.** Resolver unit tests exist;
   comprehensive `.bru` integration tests, reverse-dependency watch tests,
   staged index/worktree divergence tests, and property tests for the
