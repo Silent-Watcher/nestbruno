@@ -128,6 +128,29 @@ DTO-derived disabled query parameters, and param metadata matched
 against URL-derived path parameters without ever inventing placeholders.
 Named `@Query('x')`/`@Param('x')` semantics are preserved unchanged.
 
+## Phase 14 — CLI & CI developer experience — Completed (2026-11-10)
+
+Owner-authorized master prompt of 2026-11-10: four independently committed
+milestones, no version bump during the phase (release bookkeeping follows
+the usual semver process when the owner releases).
+
+- **14.1 Machine-readable JSON output:** `--format json` on `discover`,
+  `routes` and `sync` — one JSON document per invocation on stdout,
+  diagnostics as structured objects, deterministic ordering
+  (`src/output.rs`, `serde_json`).
+- **14.2 Read-only collection verification:** `nestbruno verify
+  [--staged]` reuses the sync pipeline as a dry run and reports
+  missing/outdated/stale/conflicts/preserved with exit 0 (in sync),
+  1 (out of sync — CI signal) and 4 (blocked or incomplete). Strictly
+  read-only, regression-tested against collection-directory creation.
+- **14.3 Shell completions:** `nestbruno completions <shell>` (bash, zsh,
+  fish, powershell) generated from the command tree via `clap_complete`,
+  stdout only.
+- **14.4 GitHub Actions workflow template:** documented, copyable PR
+  verification workflow in `website/guide/github-actions.md`
+  (`contents: read`, `cargo install nestbruno --locked`,
+  `nestbruno verify`); workflow-template scope, not a Marketplace Action.
+
 ## Cross-phase notes
 
 - Phase 6 documents a measurement-motivated candidate (restrict watch

@@ -71,7 +71,10 @@
   exit 0 in sync / 1 out of sync / 4 blocked or incomplete, JSON output and
   `--staged` support. Milestone 14.3 shipped: `nestbruno completions
   <shell>` generates Bash/Zsh/Fish/PowerShell scripts to stdout from the
-  command tree (`clap_complete`), touching nothing on disk.
+  command tree (`clap_complete`), touching nothing on disk. Milestone 14.4
+  shipped: a documented GitHub Actions workflow template
+  ([website guide](../../website/guide/github-actions.md)) running
+  `nestbruno verify` on Pull Requests with read-only permissions.
 - **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
   v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
   paths (including NodeNext `.js`/`.mjs`/`.cjs` specifier extensions),

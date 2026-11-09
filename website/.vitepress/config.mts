@@ -30,6 +30,7 @@ export default defineConfig({
             { text: 'Prefix & Versioning', link: '/guide/routes' },
             { text: 'Synchronization Model', link: '/guide/synchronization' },
             { text: 'Watch Mode', link: '/guide/watch-mode' },
+            { text: 'CI (GitHub Actions)', link: '/guide/github-actions' },
             { text: 'Safety & Ownership', link: '/guide/safety' },
             { text: 'Benchmarks', link: '/guide/benchmarks' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },

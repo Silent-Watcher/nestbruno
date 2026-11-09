@@ -457,11 +457,13 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
 - Tests: 3 end-to-end (`tests/cross_file.rs`). Record:
   `docs/phases/phase-13-query-param-dtos.md`.
 
-### Phase 14 — CLI & CI developer experience (in progress, started 2026-11-10)
+### Phase 14 — CLI & CI developer experience (completed 2026-11-10)
 
 Owner-authorized master prompt: four milestones (JSON output, read-only
-verify, shell completions, GitHub Actions workflow template). No version
-bump and no releases during this phase (explicit prompt rule).
+verify, shell completions, GitHub Actions workflow template), one commit
+each, no version bump and no releases during this phase (explicit prompt
+rule). All four milestones are complete; final audit pending release
+bookkeeping (0.6.0 or later per semver when the owner chooses to release).
 
 #### Milestone 14.1 — Machine-readable JSON output (completed 2026-11-10)
 
@@ -546,6 +548,33 @@ bump and no releases during this phase (explicit prompt rule).
 - Docs: CHANGELOG (Unreleased), STATUS, `docs/project-status.md`,
   `website/guide/commands.md` (completions section with per-shell setup),
   `website/guide/getting-started.md` (installation hint).
+
+#### Milestone 14.4 — GitHub Actions verification workflow template (completed 2026-11-10)
+
+- New guide page `website/guide/github-actions.md`, added to the VitePress
+  sidebar: a copyable workflow that runs on `pull_request` with
+  `permissions: contents: read`, checks out, installs a stable toolchain
+  (`dtolnay/rust-toolchain@stable`, matching the repository's own CI
+  conventions; MSRV-precise alternative documented), installs NestBruno
+  from crates.io with `cargo install nestbruno --locked` (verified
+  against the published 0.5.0 package with a local `--locked` install
+  smoke test), and runs `nestbruno verify`.
+- Documents: why Pull Requests fail on drift (exit 1/4 semantics),
+  verification-only policy (no `sync` in CI, no repository modification,
+  no secrets), JSON-report automation with `verify --format json`, and
+  honest limitations (no `cargo install` caching via rust-cache, pinned
+  action versions are the user's call, template not a Marketplace Action,
+  not executed in this repository's CI).
+- Verification performed: the embedded workflow YAML parses
+  (`yaml.safe_load`); the JSON-report shape was validated against real
+  `verify --format json` output of a drifted project (`status`,
+  `summary`, `changes`); `cargo install --locked --path .` into a temp
+  root succeeds and the binary runs. `jq` itself is not installed in this
+  environment, so the `jq` expression was not executed — the JSON shape
+  it reads was.
+- Gates: fmt + clippy `-D warnings` clean; 662 tests pass; website build
+  passes.
+- Docs: CHANGELOG (Unreleased), STATUS, `docs/project-status.md`.
 
 ## Known gaps inside completed phases
 

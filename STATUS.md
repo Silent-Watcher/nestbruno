@@ -1,15 +1,15 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, v0.5.0 + Phase 14.1–14.3 (JSON output, verify, completions) implemented.*
+*Last updated: 2026-11-10, v0.5.0 + Phase 14 complete (JSON output, verify, completions, CI workflow template).*
 
 ## One-paragraph state
 
-The product is at **v0.5.0** with Phases 11.1, 12 and 13 complete, and
-Phase 14 (CLI & CI developer experience) in progress per the owner-authorized
-master prompt of 2026-11-10: 14.1 machine-readable JSON output is done, then
-14.2 read-only `verify`, 14.3 shell completions, 14.4 a GitHub Actions
-workflow template. No version bump during Phase 14 (explicit master-prompt
-rule for this phase). Milestone 11.1.1: dependency reads are gated by
+The product is at **v0.5.0** with Phases 11.1, 12, 13 complete, and
+Phase 14 (CLI & CI developer experience) complete per the owner-authorized
+master prompt of 2026-11-10: 14.1 `--format json`, 14.2 read-only `verify`,
+14.3 shell completions, 14.4 a GitHub Actions workflow template — each
+committed separately, no version bump during Phase 14 (explicit
+master-prompt rule for this phase). Milestone 11.1.1: dependency reads are gated by
 canonical-root, symlink-free, regular-file containment and all resolver
 budgets are enforced. Milestone 11.1.2: cross-file resolution is run-scoped —
 one `ResolverContext` per analysis run shares the module cache across
@@ -60,7 +60,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 | `completions <shell>` | prints a completion script (bash/zsh/fish/powershell) to stdout |
 | `watch [--debounce MS]` | incremental route sync with full-resync fallbacks |
 
-**New in Phase 14 (in progress):**
+**New in Phase 14 (complete, unreleased):**
 - 14.1 done: `discover`/`routes`/`sync` accept `--format json` and print
   exactly one JSON document to stdout (diagnostics included as structured
   objects; human text stays the default; exit codes unchanged).
@@ -69,6 +69,9 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
   incomplete analysis; shares the sync pipeline, never duplicates it.
 - 14.3 done: `completions bash|zsh|fish|powershell` generated from the
   command tree via `clap_complete`; stdout only, nothing installed.
+- 14.4 done: GitHub Actions verification workflow template documented in
+  `website/guide/github-actions.md` (pull_request, `contents: read`,
+  `cargo install nestbruno --locked`, `nestbruno verify`).
 
 **New in Phase 11 (shipped in v0.2.0):**
 - Cross-file class/interface DTO resolution from imports in Controller files

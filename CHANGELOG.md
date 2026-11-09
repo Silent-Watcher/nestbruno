@@ -8,6 +8,13 @@ All notable changes to NestBruno are documented here. The format follows
 
 ### Added
 
+- **GitHub Actions verification workflow template** (Phase 14.4): a
+  documented, copyable workflow (`website/guide/github-actions.md`, linked
+  in the guide navigation) that runs `nestbruno verify` on Pull Requests
+  with `contents: read` permissions, installing NestBruno from crates.io
+  with `cargo install nestbruno --locked`. Verification only — no
+  synchronization in CI, no custom Marketplace Action. YAML syntax and the
+  JSON-report automation example validated against the current CLI.
 - **Shell completion generation** (Phase 14.3): `nestbruno completions
   <shell>` prints a completion script for Bash, Zsh, Fish or PowerShell to
   stdout, generated from the actual command tree via `clap_complete`.
