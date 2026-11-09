@@ -4,7 +4,13 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] — 2026-11-10
+
+Phase 11.1 — cross-file DTO resolver completion. All deferred Phase 11
+work shipped: dependency containment and enforced budgets, run-scoped
+resolver caching with single parsing, watch-mode dependency invalidation,
+Git-index-only staged dependency resolution, the completed Zod subset,
+and `package.json` `imports` subpaths.
 
 ### Added
 

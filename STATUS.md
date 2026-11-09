@@ -4,7 +4,7 @@
 
 ## One-paragraph state
 
-The product ships **Phase 11.1 complete** (owner-authorized master prompt
+The product is at **v0.3.0** with **Phase 11.1 complete** (owner-authorized master prompt
 of 2026-11-10: resolver completion → Phase 12 global prefix/versioning →
 Phase 13 query/param DTOs; version bumps follow semver per completed
 phase). Milestone 11.1.1: dependency reads are gated by
@@ -33,9 +33,8 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 - Phase 11 implementation: commit `d7bc701`.
 - Version 0.2.0 + crates.io packaging (`include` list): commit `3c0dbf5`.
 - Documentation overhaul + NodeNext fix + v0.2.1 bump: 2026-11-09.
-- Phase 11.1 started; Milestones 11.1.1 (containment + enforced budgets)
-  and 11.1.2 (run-scoped context + single parsing): the current working
-  tree as of 2026-11-10.
+- Phase 11.1 (Milestones 11.1.1–11.1.6, commits `ba24cf0`..`cef4a80`)
+  + v0.3.0 bump: the current working tree as of 2026-11-10.
 
 ## Current verified results (working tree, 2026-11-09)
 
