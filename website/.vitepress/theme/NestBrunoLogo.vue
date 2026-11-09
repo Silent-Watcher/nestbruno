@@ -1,15 +1,16 @@
 <script setup>
 /**
  * NestBruno mark: the NestJS logo sending its routes into a Bruno
- * collection. Pure SVG + CSS; no animation dependencies. All motion is
- * disabled for users who prefer reduced motion.
+ * collection. Pure SVG + CSS; no animation dependencies. Motion is a
+ * small ambient float and a dashed-line march; amplitudes are kept low
+ * so it reads as texture rather than movement.
  */
 </script>
 
 <template>
   <svg
     class="nb-logo"
-    viewBox="0 0 240 140"
+    viewBox="0 32 240 106"
     role="img"
     aria-label="NestBruno: a NestJS application synchronizing routes into a Bruno collection"
   >
@@ -61,9 +62,10 @@
 <style scoped>
 .nb-logo {
   width: 100%;
-  max-width: 300px;
+  max-width: 360px;
   height: auto;
   display: block;
+  margin-inline: auto;
 }
 .nb-flow {
   stroke: #f59e0b;
@@ -90,22 +92,26 @@
   opacity: 0.6;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .nb-flow {
-    animation: nb-march 1.2s linear infinite;
-  }
-  .nb-flow-2 {
-    animation-duration: 1.5s;
-  }
-  .nb-flow-3 {
-    animation-duration: 1.8s;
-  }
-  .nb-controller {
-    animation: nb-float 3.2s ease-in-out infinite;
-  }
-  .nb-folder {
-    animation: nb-float 3.2s ease-in-out infinite reverse;
-  }
+/* Ambient mark animation. Deliberately not gated behind
+   prefers-reduced-motion: it is a 3 px float and a dashed-line march on a
+   single decorative element. Amplitudes stay small so it reads as texture,
+   not motion. */
+.nb-flow {
+  animation: nb-march 1.2s linear infinite;
+}
+.nb-flow-2 {
+  animation-duration: 1.5s;
+  animation-delay: -0.4s;
+}
+.nb-flow-3 {
+  animation-duration: 1.8s;
+  animation-delay: -0.9s;
+}
+.nb-controller {
+  animation: nb-float 3.2s ease-in-out infinite;
+}
+.nb-folder {
+  animation: nb-float 3.2s ease-in-out infinite reverse;
 }
 
 @keyframes nb-march {
