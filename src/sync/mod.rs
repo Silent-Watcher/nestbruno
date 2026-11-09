@@ -353,6 +353,7 @@ mod tests {
             name: ParameterName::Named(name.into()),
             index: 0,
             type_name: None,
+            fields: Vec::new(),
         });
         r
     }

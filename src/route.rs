@@ -161,6 +161,12 @@ pub struct RouteParameter {
     /// anything beyond one identifier — are `None`: never guessed, never
     /// evaluated.
     pub type_name: Option<String>,
+    /// Resolved DTO property names for an unnamed `@Query()`/`@Param()`
+    /// object parameter (empty when the type is unresolved or a named
+    /// single-value parameter). Query fields become disabled query
+    /// parameters; param fields are matched against the URL-derived path
+    /// parameters, never inventing placeholders.
+    pub fields: Vec<String>,
 }
 
 /// The statically known request-body shape of a route.

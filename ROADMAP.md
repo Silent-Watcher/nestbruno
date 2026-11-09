@@ -114,7 +114,13 @@ safe update is possible; multiple version variants must stay
 distinguishable. Non-URI versioning strategies are identified but never
 silently interpreted as URI prefixes.
 
-## Phase 13 — Query DTO and Param DTO resolution — Not Started
+## Phase 13 — Query DTO and Param DTO resolution — Completed (2026-11-10)
+
+Unnamed `@Query()`/`@Param()` object parameters resolve through the shared
+resolver: DTO-derived disabled query parameters (deduplicated against
+named ones) and path-parameter matching that never invents placeholders.
+Engineering record:
+[`docs/phases/phase-13-query-param-dtos.md`](docs/phases/phase-13-query-param-dtos.md).
 
 Extends the shared resolver (same context, cache, limits, source
 providers) to unnamed `@Query()` and `@Param()` object parameters:

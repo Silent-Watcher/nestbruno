@@ -737,7 +737,15 @@ pub fn resolve_cross_file_dtos(
     let mut resolutions = HashMap::new();
 
     for param in body_params {
-        if param.kind != crate::route::ParameterKind::Body {
+        let is_body = param.kind == crate::route::ParameterKind::Body;
+        // Unnamed @Query()/@Param() object parameters resolve like bodies;
+        // their property names land on the parameter (query parameters /
+        // path-parameter matching), not in a body.
+        let is_unnamed_object = matches!(
+            param.kind,
+            crate::route::ParameterKind::Query | crate::route::ParameterKind::Param
+        ) && param.name == crate::route::ParameterName::Unnamed;
+        if !is_body && !is_unnamed_object {
             continue;
         }
         let Some(type_name) = &param.type_name else {

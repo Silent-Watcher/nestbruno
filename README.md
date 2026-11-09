@@ -42,7 +42,9 @@ discovery -> oxc parser -> route IR -> Bruno model -> serializer -> writer
   -> `GET /x/y`), parameter metadata, and per-route source provenance.
 - Cross-file DTO resolution: follows local imports to exported classes,
   interfaces, type aliases, and Zod schemas, and generates a JSON body
-  skeleton (`null` for every value, at most 64 fields per DTO).
+  skeleton (`null` for every value, at most 64 fields per DTO); unnamed
+  `@Query()`/`@Param()` object DTOs resolve too (disabled query
+  parameters; path parameters stay URL-derived).
 - Zod support: `z.object(...)`, provenance-checked `z.infer<typeof Schema>`
   type aliases (same file or cross-file, any declaration order), and
   `class X extends createZodDto(Schema)` (named, aliased, or

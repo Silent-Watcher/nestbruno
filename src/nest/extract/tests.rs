@@ -331,6 +331,7 @@ fn param_with_type(
         name,
         index,
         type_name: Some(type_name.to_owned()),
+        fields: Vec::new(),
     }
 }
 

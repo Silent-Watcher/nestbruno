@@ -482,24 +482,28 @@ mod tests {
                 name: ParameterName::Named("id".into()),
                 index: 0,
                 type_name: None,
+                fields: Vec::new(),
             },
             RouteParameter {
                 kind: ParameterKind::Query,
                 name: ParameterName::Named("notify".into()),
                 index: 1,
                 type_name: None,
+                fields: Vec::new(),
             },
             RouteParameter {
                 kind: ParameterKind::Body,
                 name: ParameterName::Unnamed,
                 index: 2,
                 type_name: None,
+                fields: Vec::new(),
             },
             RouteParameter {
                 kind: ParameterKind::Headers,
                 name: ParameterName::Named("x\ny".into()),
                 index: 3,
                 type_name: None,
+                fields: Vec::new(),
             },
         ];
         let g = generate(

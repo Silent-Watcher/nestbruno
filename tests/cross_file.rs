@@ -254,3 +254,91 @@ fn repeated_syncs_are_byte_identical_with_cross_file_dtos() {
 fn names_of(t: &[(String, Vec<u8>)]) -> Vec<String> {
     t.iter().map(|(n, _)| n.clone()).collect()
 }
+
+// ------------------------------------------------- query/param DTO resolution
+
+#[test]
+fn a_cross_file_query_dto_becomes_disabled_query_parameters() {
+    let p = TestProject::new();
+    p.write(
+        "src/dto/find-users.query.ts",
+        "export class FindUsersQuery {\n  page: number;\n  limit: number;\n  search: string;\n}\n",
+    );
+    p.write(
+        "src/users.controller.ts",
+        "import { Controller, Get, Query } from '@nestjs/common';\n\
+         import { FindUsersQuery } from './dto/find-users.query';\n\
+         @Controller('users')\n\
+         export class UsersController {\n\
+         \x20 @Get()\n\
+         \x20 findAll(@Query() query: FindUsersQuery) {}\n\
+         }\n",
+    );
+    let output = p.run(&["sync"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let content = text(&std::fs::read(p.root().join("bruno/Users/find-all.bru")).expect("req"));
+    assert!(content.contains("params:query {"), "{content}");
+    assert!(content.contains("~page:"), "{content}");
+    assert!(content.contains("~limit:"), "{content}");
+    assert!(content.contains("~search:"), "{content}");
+    assert!(!content.contains("fields not inferred"), "{content}");
+}
+
+#[test]
+fn named_and_dto_query_parameters_deduplicate() {
+    let p = TestProject::new();
+    p.write(
+        "src/dto/find-users.query.ts",
+        "export class FindUsersQuery {\n  page: number;\n  limit: number;\n}\n",
+    );
+    p.write(
+        "src/users.controller.ts",
+        "import { Controller, Get, Query } from '@nestjs/common';\n\
+         import { FindUsersQuery } from './dto/find-users.query';\n\
+         @Controller('users')\n\
+         export class UsersController {\n\
+         \x20 @Get()\n\
+         \x20 findAll(@Query() query: FindUsersQuery, @Query('page') page: string) {}\n\
+         }\n",
+    );
+    let output = p.run(&["sync"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let content = text(&std::fs::read(p.root().join("bruno/Users/find-all.bru")).expect("req"));
+    assert_eq!(content.matches("~page:").count(), 1, "{content}");
+    assert!(content.matches("~limit:").count() == 1, "{content}");
+}
+
+#[test]
+fn a_param_dto_never_invents_path_placeholders() {
+    let p = TestProject::new();
+    p.write(
+        "src/dto/find-post.params.ts",
+        "export class FindPostParams {\n  userId: string;\n  postId: string;\n  ghost: string;\n}\n",
+    );
+    p.write(
+        "src/posts.controller.ts",
+        "import { Controller, Get, Param } from '@nestjs/common';\n\
+         import { FindPostParams } from './dto/find-post.params';\n\
+         @Controller('users/:userId/posts')\n\
+         export class PostsController {\n\
+         \x20 @Get(':postId')\n\
+         \x20 findOne(@Param() params: FindPostParams) {}\n\
+         }\n",
+    );
+    let output = p.run(&["sync"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let content = text(&std::fs::read(p.root().join("bruno/Posts/find-one.bru")).expect("req"));
+    // URL is the source of truth for path parameters.
+    assert!(content.contains("params:path {"), "{content}");
+    assert!(content.contains("userId:"), "{content}");
+    assert!(content.contains("postId:"), "{content}");
+    // A DTO field absent from the URL is documented, never invented.
+    assert!(
+        content.contains("ghost"),
+        "the extra DTO field is reported: {content}"
+    );
+    assert!(
+        !content.contains("~ghost:"),
+        "no invented query param: {content}"
+    );
+}

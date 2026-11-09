@@ -4,7 +4,7 @@
 
 ## One-paragraph state
 
-The product is at **v0.4.0** with Phases 11.1 and 12 complete (owner-authorized master prompt
+The product is at **v0.4.0** with Phases 11.1, 12 and 13 complete (13 pending release) (owner-authorized master prompt
 of 2026-11-10: resolver completion → Phase 12 global prefix/versioning →
 Phase 13 query/param DTOs; version bumps follow semver per completed
 phase). Milestone 11.1.1: dependency reads are gated by
@@ -40,7 +40,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 625 tests (610 at Phase 11.1; +15 for Phase 12)
+- `cargo test --all-features` — pass, 628 tests (625 after Phase 12; +3 for Phase 13)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -100,8 +100,10 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
   route IR; bounded bootstrap discovery + `bootstrap` config key; exclude
   rules, `@Version` precedence, `VERSION_NEUTRAL`, multi-version variants.
   Record in `docs/phases/phase-12-global-prefix-versioning.md`.
-- Next: Phase 12 docs/version finishing, then Phase 13 (query/param DTOs).
-  See `ROADMAP.md` and `PROGRESS.md`.
+- Phase 13 done: query/param DTO resolution through the shared resolver;
+  record in `docs/phases/phase-13-query-param-dtos.md`.
+- Next: Phase 13 release finishing (version bump), then the final project
+  audit. See `ROADMAP.md` and `PROGRESS.md`.
 
 ## Phase 11 — remaining work (deferred to future phases)
 

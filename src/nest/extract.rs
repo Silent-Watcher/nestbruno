@@ -182,15 +182,29 @@ pub fn extract_controllers(
         // For each route with Unknown body and @Body parameters, resolve cross-file DTOs
         for controller in &mut file_analysis.controllers {
             for route in &mut controller.routes {
-                if route.body != BodyShape::Unknown {
+                // Body resolution needs an unknown body; unnamed
+                // @Query()/@Param() object parameters resolve regardless of
+                // the body shape.
+                let has_unnamed_object_param = route.parameters.iter().any(|parameter| {
+                    parameter.fields.is_empty()
+                        && parameter.type_name.is_some()
+                        && parameter.name == ParameterName::Unnamed
+                        && matches!(parameter.kind, ParameterKind::Query | ParameterKind::Param)
+                });
+                if route.body != BodyShape::Unknown && !has_unnamed_object_param {
                     continue;
                 }
 
-                // Collect @Body parameters for this route
+                // Collect the parameters whose types resolve cross-file:
+                // @Body parameters and unnamed @Query()/@Param() objects.
                 let body_params: Vec<RouteParameter> = route
                     .parameters
                     .iter()
-                    .filter(|p| p.kind == ParameterKind::Body)
+                    .filter(|p| {
+                        p.kind == ParameterKind::Body
+                            || (matches!(p.kind, ParameterKind::Query | ParameterKind::Param)
+                                && p.name == ParameterName::Unnamed)
+                    })
                     .cloned()
                     .collect();
 
@@ -209,18 +223,62 @@ pub fn extract_controllers(
                     &same_file_dtos,
                 );
 
-                // Apply the first successful resolution (NestJS only allows one @Body per route)
-                if let Some((_param_idx, resolution)) = resolutions.resolutions.into_iter().next() {
-                    match resolution {
-                        crate::resolve::DtoResolution::Fields(props)
-                        | crate::resolve::DtoResolution::ZodFields(props) => {
+                // Apply resolutions per parameter: the @Body parameter's
+                // fields become the body shape; unnamed @Query()/@Param()
+                // object parameters carry their fields on the parameter.
+                for (param_index, resolution) in resolutions.resolutions {
+                    let kind = route
+                        .parameters
+                        .iter()
+                        .find(|parameter| parameter.index == param_index)
+                        .map(|parameter| parameter.kind);
+                    match (&resolution, kind) {
+                        (
+                            crate::resolve::DtoResolution::Fields(props),
+                            Some(ParameterKind::Body),
+                        )
+                        | (
+                            crate::resolve::DtoResolution::ZodFields(props),
+                            Some(ParameterKind::Body),
+                        ) => {
                             if !props.is_empty() {
-                                route.body = BodyShape::Fields(props);
+                                route.body = BodyShape::Fields(props.clone());
                             }
                         }
-                        crate::resolve::DtoResolution::Uncertain(_) => {
+                        (
+                            crate::resolve::DtoResolution::Fields(props),
+                            Some(ParameterKind::Query),
+                        )
+                        | (
+                            crate::resolve::DtoResolution::Fields(props),
+                            Some(ParameterKind::Param),
+                        ) => {
+                            if let Some(parameter) = route
+                                .parameters
+                                .iter_mut()
+                                .find(|parameter| parameter.index == param_index)
+                            {
+                                parameter.fields = props.clone();
+                            }
+                        }
+                        (
+                            crate::resolve::DtoResolution::Uncertain(_),
+                            Some(ParameterKind::Body),
+                        )
+                        | (crate::resolve::DtoResolution::Uncertain(_), None) => {
                             // A partial property list is not a complete body
                             // shape. Keep the conservative Unknown fallback.
+                        }
+                        (crate::resolve::DtoResolution::Uncertain(props), _) => {
+                            // Query/param uncertain: keep the partial names
+                            // (they are disabled metadata, never sent).
+                            if let Some(parameter) = route
+                                .parameters
+                                .iter_mut()
+                                .find(|parameter| parameter.index == param_index)
+                            {
+                                parameter.fields = props.clone();
+                            }
                         }
                         _ => {}
                     }
@@ -585,11 +643,25 @@ impl Extractor<'_, '_> {
                 if kind == ParameterKind::Body {
                     body_param_type = type_name.clone();
                 }
+                // Unnamed @Query()/@Param() object parameters: same-file DTO
+                // property names (cross-file resolution fills the rest later).
+                let fields = if name == ParameterName::Unnamed
+                    && matches!(kind, ParameterKind::Query | ParameterKind::Param)
+                {
+                    type_name
+                        .as_deref()
+                        .and_then(|type_name| self.dtos.iter().find(|(dto, _)| dto == type_name))
+                        .map(|(_, fields)| fields.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
                 parameters.push(RouteParameter {
                     kind,
                     name,
                     index,
                     type_name: type_name.clone(),
+                    fields,
                 });
             }
         }

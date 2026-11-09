@@ -108,15 +108,55 @@ pub fn build_request(
             docs.push(format!("{label}{name_desc}: type {}", display(type_name)));
         }
         match (&parameter.kind, &parameter.name) {
-            (ParameterKind::Param, _) => {}
+            // (Param, Named/Unresolved) fall through to those arms; Param +
+            // Unnamed is handled there too (fields are matched against the
+            // URL-derived path parameters, never inventing placeholders).
             (kind, ParameterName::Unnamed) => {
+                // Resolved DTO property names: query fields become disabled
+                // query parameters (deduplicated against named ones); param
+                // fields are matched against the URL-derived path
+                // parameters, never inventing placeholders.
+                let object_fields = !parameter.fields.is_empty()
+                    && matches!(kind, ParameterKind::Query | ParameterKind::Param);
+                if object_fields {
+                    match kind {
+                        ParameterKind::Query => {
+                            for field in &parameter.fields {
+                                if let Ok(()) = check_key(field) {
+                                    push_unique(&mut query_params, field, false);
+                                } else {
+                                    warnings.push(format!(
+                                        "{label}() field {:?} was left out: invalid name",
+                                        display(field)
+                                    ));
+                                }
+                            }
+                        }
+                        ParameterKind::Param => {
+                            let extra: Vec<&String> = parameter
+                                .fields
+                                .iter()
+                                .filter(|field| !path_params.contains(field))
+                                .collect();
+                            if !extra.is_empty() {
+                                let names: Vec<&str> =
+                                    extra.iter().map(|field| field.as_str()).collect();
+                                docs.push(format!(
+                                    "{label}(): DTO fields not present in the URL path: {} (path parameters come from the URL)",
+                                    names.join(", ")
+                                ));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 if *kind == ParameterKind::Body {
                     // Only say "fields not inferred" when the body shape is
                     // actually unknown; DTO fields are already in the body.
                     if matches!(route.body, BodyShape::Unknown) {
                         docs.push(format!("{label}(): whole object, fields not inferred"));
                     }
-                } else {
+                } else if !object_fields {
                     docs.push(format!("{label}(): whole object, fields not inferred"));
                 }
             }
@@ -373,6 +413,7 @@ mod tests {
             name,
             index,
             type_name: None,
+            fields: Vec::new(),
         }
     }
 
@@ -387,6 +428,7 @@ mod tests {
             name,
             index,
             type_name: Some(type_name.to_owned()),
+            fields: Vec::new(),
         }
     }
 
