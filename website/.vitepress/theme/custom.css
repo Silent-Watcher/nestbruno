@@ -70,6 +70,14 @@
      that we do not show; undo it. */
   .VPHero .image .image-container {
     transform: none;
+    width: 100%;
+  }
+  /* The wrapper stretches to the text column's height (flex-grow + align
+     stretch); center the mark in it, with clear air from the text. */
+  .VPHero .image {
+    display: flex;
+    align-items: center;
+    padding-left: 72px;
   }
 }
 @media (max-width: 639px) {
