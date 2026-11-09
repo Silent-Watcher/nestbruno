@@ -133,6 +133,11 @@ fn resolve_bare(
 /// Order: NodeNext-emitted extensions mapped to TS sources (`.js` -> `.ts`,
 /// `.mjs` -> `.mts`, `.cjs` -> `.cts`), then `<path>.ts`, `<path>/index.ts`,
 /// `<path>` (if ends with .ts).
+///
+/// Selection uses `symlink_metadata`, which never follows links: a symlinked
+/// candidate is selected deliberately so the containment validation in the
+/// resolver can reject it with a precise diagnostic. A bare `exists()` would
+/// follow links and silently hide symlink targets and loops behind `ELOOP`.
 fn try_file_candidates(
     path: &Path,
     project_root: &Path,
@@ -142,7 +147,8 @@ fn try_file_candidates(
     // With `moduleResolution: "NodeNext"`, specifiers must name the emitted
     // file (`./x.js`); the analyzed source is `./x.ts` behind it.
     for mapped in mapped_ts_sources(&path_str) {
-        if project_root.join(&mapped).exists() {
+        let abs_mapped = project_root.join(&mapped);
+        if std::fs::symlink_metadata(&abs_mapped).is_ok() {
             return Ok(Some(PathBuf::from(mapped)));
         }
     }
@@ -151,21 +157,21 @@ fn try_file_candidates(
     let abs_path = project_root.join(path);
 
     // 1. If it ends with .ts, try as-is
-    if path_str.ends_with(".ts") && abs_path.exists() {
+    if path_str.ends_with(".ts") && std::fs::symlink_metadata(&abs_path).is_ok() {
         return Ok(Some(path.to_path_buf()));
     }
 
     // 2. Try appending .ts (not replacing extension)
     let with_ts = PathBuf::from(format!("{}.ts", path_str));
     let abs_with_ts = project_root.join(&with_ts);
-    if abs_with_ts.exists() {
+    if std::fs::symlink_metadata(&abs_with_ts).is_ok() {
         return Ok(Some(with_ts));
     }
 
     // 3. Try as directory with index.ts
     let index_ts = path.join("index.ts");
     let abs_index_ts = project_root.join(&index_ts);
-    if abs_index_ts.exists() {
+    if std::fs::symlink_metadata(&abs_index_ts).is_ok() {
         return Ok(Some(index_ts));
     }
 

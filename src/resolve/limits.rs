@@ -2,6 +2,18 @@
 //!
 //! These limits prevent pathological memory and CPU consumption. They are
 //! internal implementation constants, not user configuration.
+//!
+//! # Boundary semantics
+//!
+//! All budgets share one rule: the operation that would exceed a budget is
+//! rejected in full, and work already completed within budget stays valid.
+//! For per-module budgets (`MAX_DEPENDENCY_FILES`, `MAX_TOTAL_DEPENDENCY_BYTES`,
+//! `MAX_DTO_DECLARATIONS`, `MAX_SOURCE_BYTES`) this means a module is either
+//! analyzed completely or not at all — a partially tracked module is never
+//! published to the cache. Callers surface every rejection as
+//! `DtoResolution::Unknown`, keeping the conservative "unknown, not empty"
+//! contract. Counters use checked arithmetic; overflow saturates the counter
+//! and the next budget check rejects.
 
 /// Maximum re-export chain hops to follow (e.g., export { X } from './a' ->
 /// export { X } from './b' -> class X ...). The prompt specifies 4.
@@ -11,7 +23,8 @@ pub const MAX_REEXPORT_HOPS: usize = 4;
 /// (incremental or full). This bounds memory and parsing work.
 pub const MAX_DEPENDENCY_FILES: usize = 512;
 
-/// Maximum number of import/export edges tracked per analysis run.
+/// Maximum number of import/export edges (specifier resolutions that name a
+/// project module) established per analysis run.
 pub const MAX_IMPORT_EDGES: usize = 4096;
 
 /// Maximum aggregate source bytes of all resolved dependency files.

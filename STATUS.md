@@ -1,31 +1,32 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-09, after the post-v0.2.0 NodeNext import-specifier fix (v0.2.1).*
+*Last updated: 2026-11-10, during Phase 11.1 (Milestone 11.1.1 completed).*
 
 ## One-paragraph state
 
-The product is at **v0.2.1** (Phase 11 shipped in v0.2.0, commits `d7bc701`
-feature and `3c0dbf5` version bump): a Rust 2024 / MSRV 1.91 CLI that
-statically analyzes NestJS routes and keeps a Bruno collection synchronized.
-Phases 1–9 and 11 are complete in the committed history. Phase 10 remains
-**OpenAPI interoperability** and has not started. On 2026-11-09 a real-world
-failure was fixed: NodeNext-style `.js`/`.mjs`/`.cjs` import specifiers did
-not resolve, degrading all cross-file DTO resolution to
-`BodyShape::Unknown` for `moduleResolution: "NodeNext"` projects.
+The product is at **v0.2.1** with **Phase 11.1 in progress** (owner-authorized
+master prompt of 2026-11-10: resolver completion → Phase 12 global
+prefix/versioning → Phase 13 query/param DTOs; version bumps follow semver
+per completed phase). Milestone 11.1.1 is complete: dependency reads are
+gated by canonical-root, symlink-free, regular-file containment
+(`src/resolve/containment.rs`) and all resolver budgets are enforced with
+reject-the-exceeding-operation semantics. Phases 1–9 and 11 are complete in
+the committed history; Phase 10 remains **OpenAPI interoperability** and has
+not started.
 
 ## Repository snapshot
 
 - Phase 11 implementation: commit `d7bc701`.
 - Version 0.2.0 + crates.io packaging (`include` list): commit `3c0dbf5`.
-- Documentation overhaul: the 2026-11-09 working tree.
-- Post-release fix (NodeNext import specifiers) + v0.2.1 bump: the
-  current working tree as of 2026-11-09.
+- Documentation overhaul + NodeNext fix + v0.2.1 bump: 2026-11-09.
+- Phase 11.1 started; Milestone 11.1.1 (containment + enforced budgets):
+  the current working tree as of 2026-11-10.
 
 ## Current verified results (working tree, 2026-11-09)
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 539 tests (was 535 at Phase 11, 495 at Phase 9)
+- `cargo test --all-features` — pass, 559 tests (539 at Phase 11 + 20 from Milestone 11.1.1)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -56,6 +57,14 @@ not resolve, degrading all cross-file DTO resolution to
   `.ts`/`.mts`/`.cts` sources; previously any project with
   `moduleResolution: "NodeNext"` silently got `BodyShape::Unknown` for every
   cross-file DTO.
+
+**Phase 11.1 in progress (started 2026-11-10):**
+- Milestone 11.1.1 done: `resolve/containment.rs` gates every dependency
+  read on canonical-root containment, symlink-free components and a
+  regular-file target; `MAX_IMPORT_EDGES`/`MAX_DTO_DECLARATIONS` enforced;
+  boundary tests at exact limit and +1 for every budget.
+- Next: 11.1.2 run-scoped resolver context and single parsing. See
+  `ROADMAP.md` for the milestone list and `PROGRESS.md` for detail.
 
 ## Phase 11 — remaining work (deferred to future phases)
 

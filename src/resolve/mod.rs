@@ -5,6 +5,7 @@
 //! depth. It integrates with the existing analysis pipeline to provide
 //! `BodyShape::Fields` for cross-file DTOs.
 
+pub mod containment;
 pub mod imports;
 pub mod limits;
 pub mod module;
@@ -17,6 +18,7 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
 use crate::discovery::Matcher;
+use crate::resolve::containment::{DependencyPathError, validated_dependency_path};
 use crate::resolve::imports::{ModuleImportsExports, extract_imports_exports};
 use crate::resolve::limits::*;
 use crate::resolve::module::{ModuleResolveError, resolve_module};
@@ -43,6 +45,10 @@ pub enum DtoResolution {
 pub struct DtoResolver<'a> {
     /// Project root directory.
     project_root: &'a Path,
+    /// Canonical project root used for containment validation. `None` when
+    /// the root could not be canonicalized; every dependency read is then
+    /// rejected conservatively.
+    canonical_root: Option<PathBuf>,
     /// Source directory prefix (e.g., "src").
     source_prefix: &'a Path,
     /// Configuration.
@@ -56,6 +62,8 @@ pub struct DtoResolver<'a> {
     /// Resolution stack for cycle detection: (module_path, symbol_name) pairs
     /// currently being resolved. A cycle is detected when the same pair appears twice.
     resolution_stack: Vec<(PathBuf, String)>,
+    /// Import/export edges established by specifier resolution.
+    import_edge_count: usize,
     /// Total bytes of resolved dependency sources.
     total_dependency_bytes: usize,
     /// Number of dependency files resolved.
@@ -88,18 +96,36 @@ impl<'a> DtoResolver<'a> {
         matcher: &'a Matcher,
     ) -> Self {
         let tsconfig = TsConfig::load(project_root);
+        // Canonicalize once: every dependency read is validated against the
+        // canonical root so symlinked roots above it cannot relocate the
+        // containment boundary. If canonicalization fails, dependency reads
+        // are rejected conservatively (cross-file resolution degrades to
+        // BodyShape::Unknown, never to a guessed body).
+        let (canonical_root, initial_diagnostics) = match std::fs::canonicalize(project_root) {
+            Ok(root) => (Some(root), Vec::new()),
+            Err(_) => (
+                None,
+                vec![Diagnostic::new(
+                    Severity::Warning,
+                    Some(project_root.to_path_buf()),
+                    "cannot canonicalize project root; cross-file DTO resolution is disabled for this run",
+                )],
+            ),
+        };
         Self {
             project_root,
+            canonical_root,
             source_prefix,
             config,
             matcher,
             tsconfig,
             module_cache: HashMap::new(),
             resolution_stack: Vec::new(),
+            import_edge_count: 0,
             total_dependency_bytes: 0,
             dependency_file_count: 0,
             dto_declaration_count: 0,
-            diagnostics: Vec::new(),
+            diagnostics: initial_diagnostics,
         }
     }
 
@@ -149,13 +175,25 @@ impl<'a> DtoResolver<'a> {
     }
 
     /// Resolve an imported module specifier to a project-relative path.
+    ///
+    /// Each specifier that resolves to a project module consumes one import
+    /// edge from [`MAX_IMPORT_EDGES`]; the edge that would exceed the budget
+    /// is not followed and resolution degrades to `Unknown`.
     fn resolve_imported_module(
-        &self,
+        &mut self,
         _imported_name: &str,
         specifier: &str,
         from_file: &Path,
     ) -> Option<PathBuf> {
-        match resolve_module(
+        if self.import_edge_count >= MAX_IMPORT_EDGES {
+            self.add_diagnostic(
+                Severity::Warning,
+                from_file,
+                "import edge limit reached; stopping cross-file resolution",
+            );
+            return None;
+        }
+        let resolved = match resolve_module(
             specifier,
             from_file,
             self.source_prefix,
@@ -171,10 +209,25 @@ impl<'a> DtoResolver<'a> {
                 None
             }
             Err(ModuleResolveError::Io) => None,
+        };
+        if resolved.is_some() {
+            self.import_edge_count = self.import_edge_count.saturating_add(1);
         }
+        resolved
     }
 
     /// Analyze a module (parse, extract imports/exports, Zod schemas, local DTOs).
+    ///
+    /// Before any filesystem read the project-relative path is validated by
+    /// [`validated_dependency_path`]: no symlink components, regular file
+    /// final target, contained in the canonical project root. Rejected or
+    /// unreadable dependencies yield no module analysis (`None`), which
+    /// callers surface as `DtoResolution::Unknown`.
+    ///
+    /// Budget boundary semantics are consistent across all limits: the
+    /// operation that would exceed a budget is rejected in full; work already
+    /// completed within budget stays cached and valid. A module is either
+    /// analyzed completely (all counters committed) or not at all.
     fn analyze_module(&mut self, module_path: &Path) -> Option<&ModuleAnalysis> {
         // Check cache first
         if self.module_cache.contains_key(module_path) {
@@ -191,8 +244,27 @@ impl<'a> DtoResolver<'a> {
             return None;
         }
 
+        // Containment validation: the path must name a regular file under the
+        // canonical project root without traversing any symlink. Rejections
+        // are conservative (no partial results, no reads outside the root).
+        let canonical_root = self.canonical_root.clone()?;
+        let abs_path = match validated_dependency_path(&canonical_root, module_path) {
+            Ok(path) => path,
+            Err(DependencyPathError::NotFound(_)) => {
+                self.add_diagnostic(Severity::Warning, module_path, "dependency file not found");
+                return None;
+            }
+            Err(reason) => {
+                self.add_diagnostic(
+                    Severity::Warning,
+                    module_path,
+                    format!("rejected dependency path: {reason}"),
+                );
+                return None;
+            }
+        };
+
         // Read source
-        let abs_path = self.project_root.join(module_path);
         let source = match std::fs::read_to_string(&abs_path) {
             Ok(s) => s,
             Err(_) => {
@@ -214,8 +286,19 @@ impl<'a> DtoResolver<'a> {
             return None;
         }
 
-        // Check total bytes limit
-        if self.total_dependency_bytes + source.len() > MAX_TOTAL_DEPENDENCY_BYTES {
+        // Check total bytes limit (checked: the aggregate can only grow).
+        let would_total = match self.total_dependency_bytes.checked_add(source.len()) {
+            Some(total) => total,
+            None => {
+                self.add_diagnostic(
+                    Severity::Warning,
+                    module_path,
+                    "total dependency bytes limit reached; stopping",
+                );
+                return None;
+            }
+        };
+        if would_total > MAX_TOTAL_DEPENDENCY_BYTES {
             self.add_diagnostic(
                 Severity::Warning,
                 module_path,
@@ -245,6 +328,30 @@ impl<'a> DtoResolver<'a> {
         // Extract same-file class/interface properties (like dto_properties in extract.rs)
         let local_dtos = self.extract_local_dtos(&parsed.program);
 
+        // Declaration budget: a module that would push the run past
+        // MAX_DTO_DECLARATIONS is rejected whole so no partially tracked
+        // declaration set is ever published.
+        let declarations = local_dtos.len() + zod_schemas.len();
+        let would_declare = match self.dto_declaration_count.checked_add(declarations) {
+            Some(total) => total,
+            None => {
+                self.add_diagnostic(
+                    Severity::Warning,
+                    module_path,
+                    "DTO declaration limit reached",
+                );
+                return None;
+            }
+        };
+        if would_declare > MAX_DTO_DECLARATIONS {
+            self.add_diagnostic(
+                Severity::Warning,
+                module_path,
+                "DTO declaration limit reached; stopping cross-file resolution",
+            );
+            return None;
+        }
+
         let analysis = ModuleAnalysis {
             imports_exports,
             zod_schemas,
@@ -252,17 +359,9 @@ impl<'a> DtoResolver<'a> {
             _source: source.clone(),
         };
 
-        self.total_dependency_bytes += source.len();
-        self.dependency_file_count += 1;
-        self.dto_declaration_count += analysis.local_dtos.len() + analysis.zod_schemas.len();
-
-        if self.dto_declaration_count > MAX_DTO_DECLARATIONS {
-            self.add_diagnostic(
-                Severity::Warning,
-                module_path,
-                "DTO declaration limit reached",
-            );
-        }
+        self.total_dependency_bytes = would_total;
+        self.dependency_file_count = self.dependency_file_count.saturating_add(1);
+        self.dto_declaration_count = would_declare;
 
         self.module_cache
             .insert(module_path.to_path_buf(), analysis);
@@ -806,6 +905,413 @@ export class UsersController {
         assert_eq!(
             resolution,
             DtoResolution::ZodFields(vec!["name".into(), "email".into()])
+        );
+    }
+
+    #[test]
+    fn reexport_depth_at_limit_resolves() {
+        let (_dir, root, config, matcher) = setup_project();
+        // Exactly MAX_REEXPORT_HOPS re-export modules: level0 declares, each
+        // level above re-exports. The declaration is reached at depth 4,
+        // which the budget still allows (only depth > 4 is rejected).
+        for i in 0..5 {
+            let dir = root.join("src").join(format!("level{i}"));
+            fs::create_dir_all(&dir).unwrap();
+            if i == 0 {
+                fs::write(dir.join("dto.ts"), "export class Dto { a: string; }").unwrap();
+            } else {
+                let from = format!("../level{}/dto", i - 1);
+                fs::write(
+                    dir.join("dto.ts"),
+                    format!("export {{ Dto }} from '{}';", from),
+                )
+                .unwrap();
+            }
+        }
+        fs::create_dir_all(root.join("src/users")).unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { Dto } from '../level4/dto';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: Dto) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("Dto", Path::new("src/users/users.controller.ts"));
+        assert_eq!(resolution, DtoResolution::Fields(vec!["a".into()]));
+    }
+
+    #[test]
+    fn missing_dependency_resolves_after_creation() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/users/dto")).unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { LateDto } from './dto/late';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: LateDto) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let resolution =
+            resolver.resolve_type("LateDto", Path::new("src/users/users.controller.ts"));
+        // A specifier that matches no project file resolves silently to
+        // None (indistinguishable from an external package) -> Unknown.
+        assert_eq!(resolution, DtoResolution::Unknown);
+
+        // Failures are not cached: creating the file makes the next
+        // resolution of the same specifier succeed.
+        fs::write(
+            root.join("src/users/dto/late.ts"),
+            "export class LateDto { id: string; }",
+        )
+        .unwrap();
+        let resolution =
+            resolver.resolve_type("LateDto", Path::new("src/users/users.controller.ts"));
+        assert_eq!(resolution, DtoResolution::Fields(vec!["id".into()]));
+    }
+
+    #[test]
+    fn rejects_directory_dependency() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/users/weird.ts")).unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { X } from './weird.ts';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: X) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
+        assert_eq!(resolution, DtoResolution::Unknown);
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("not a regular file"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_dependency_target() {
+        let (_dir, root, config, matcher) = setup_project();
+        let outside = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(root.join("src/users/dto")).unwrap();
+        fs::write(
+            outside.path().join("leaked.ts"),
+            "export class X { a: string; }",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("leaked.ts"),
+            root.join("src/users/dto/leaked.ts"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { X } from './dto/leaked';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: X) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
+        // The dependency is never read: the result is Unknown, not the
+        // properties of the out-of-root file.
+        assert_eq!(resolution, DtoResolution::Unknown);
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("symlinked path component"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_intermediate_directory() {
+        let (_dir, root, config, matcher) = setup_project();
+        let outside = tempfile::TempDir::new().unwrap();
+        fs::write(outside.path().join("x.ts"), "export class X { a: string; }").unwrap();
+        fs::create_dir_all(root.join("src/users")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.join("src/users/dto")).unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { X } from './dto/x';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: X) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
+        assert_eq!(resolution, DtoResolution::Unknown);
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("symlinked path component"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_loop_dependency() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/users/dto")).unwrap();
+        std::os::unix::fs::symlink(
+            root.join("src/users/dto/b.ts"),
+            root.join("src/users/dto/a.ts"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            root.join("src/users/dto/a.ts"),
+            root.join("src/users/dto/b.ts"),
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { X } from './dto/a';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: X) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
+        // A loop is just a symlink chain: rejected without being followed.
+        assert_eq!(resolution, DtoResolution::Unknown);
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("symlinked path component"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_special_file_dependency() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/users")).unwrap();
+        // A Unix socket is a special file; reading it would block.
+        let _listener =
+            std::os::unix::net::UnixListener::bind(root.join("src/users/sock.ts")).unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { X } from './sock.ts';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: X) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("X", Path::new("src/users/users.controller.ts"));
+        assert_eq!(resolution, DtoResolution::Unknown);
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("not a regular file"))
+        );
+    }
+
+    #[test]
+    fn dependency_file_limit_boundary() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/d")).unwrap();
+        for i in 0..MAX_DEPENDENCY_FILES {
+            fs::write(
+                root.join("src/d").join(format!("m{i}.ts")),
+                format!("export class C{i} {{}}"),
+            )
+            .unwrap();
+        }
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        for i in 0..MAX_DEPENDENCY_FILES {
+            let path = PathBuf::from(format!("src/d/m{i}.ts"));
+            assert!(
+                resolver.analyze_module(&path).is_some(),
+                "file {i} is within the file budget and must analyze"
+            );
+        }
+        // The file that would exceed the budget is rejected in full.
+        fs::write(root.join("src/d/extra.ts"), "export class Extra {}").unwrap();
+        assert!(
+            resolver
+                .analyze_module(Path::new("src/d/extra.ts"))
+                .is_none()
+        );
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("dependency file limit"))
+        );
+    }
+
+    #[test]
+    fn per_file_source_limit_boundary() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/d")).unwrap();
+        // Exactly MAX_SOURCE_BYTES: accepted (the check is strictly greater).
+        let at_limit = format!("//{}\n", "x".repeat(MAX_SOURCE_BYTES - 3));
+        fs::write(root.join("src/d/at.ts"), &at_limit).unwrap();
+        // One byte beyond: rejected before parsing.
+        let beyond = format!("//{}\n", "x".repeat(MAX_SOURCE_BYTES - 2));
+        fs::write(root.join("src/d/beyond.ts"), &beyond).unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        assert!(resolver.analyze_module(Path::new("src/d/at.ts")).is_some());
+        assert!(
+            resolver
+                .analyze_module(Path::new("src/d/beyond.ts"))
+                .is_none()
+        );
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("too large"))
+        );
+    }
+
+    #[test]
+    fn total_dependency_bytes_boundary() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/d")).unwrap();
+        // MAX_TOTAL_DEPENDENCY_BYTES is exactly 16 files of MAX_SOURCE_BYTES.
+        let full = format!("//{}\n", "x".repeat(MAX_SOURCE_BYTES - 3));
+        for i in 0..16 {
+            fs::write(root.join("src/d").join(format!("f{i}.ts")), &full).unwrap();
+        }
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        for i in 0..16 {
+            let path = PathBuf::from(format!("src/d/f{i}.ts"));
+            assert!(
+                resolver.analyze_module(&path).is_some(),
+                "file {i} fills the byte budget exactly and must analyze"
+            );
+        }
+        // Aggregate is at exactly MAX_TOTAL_DEPENDENCY_BYTES: any further
+        // file, however small, is rejected.
+        fs::write(root.join("src/d/tiny.ts"), "//\n").unwrap();
+        assert!(
+            resolver
+                .analyze_module(Path::new("src/d/tiny.ts"))
+                .is_none()
+        );
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("total dependency bytes limit"))
+        );
+    }
+
+    #[test]
+    fn dto_declaration_limit_boundary() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/d")).unwrap();
+        let schemas = |count: usize| -> String {
+            let mut source = String::from("import { z } from 'zod';\n");
+            for i in 0..count {
+                source.push_str(&format!(
+                    "export const S{i} = z.object({{ a: z.string() }});\n"
+                ));
+            }
+            source
+        };
+        // Two modules of 512 schemas fill the 1024-declaration budget exactly.
+        fs::write(root.join("src/d/half0.ts"), schemas(512)).unwrap();
+        fs::write(root.join("src/d/half1.ts"), schemas(512)).unwrap();
+        // The module that would exceed the budget is rejected whole.
+        fs::write(root.join("src/d/one.ts"), schemas(1)).unwrap();
+
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        assert!(
+            resolver
+                .analyze_module(Path::new("src/d/half0.ts"))
+                .is_some()
+        );
+        assert!(
+            resolver
+                .analyze_module(Path::new("src/d/half1.ts"))
+                .is_some()
+        );
+        assert!(resolver.analyze_module(Path::new("src/d/one.ts")).is_none());
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("DTO declaration limit"))
+        );
+        // The rejected module's declarations were not partially committed:
+        // the budget stays exactly at the limit.
+        assert_eq!(resolver.dto_declaration_count, MAX_DTO_DECLARATIONS);
+    }
+
+    #[test]
+    fn import_edge_limit_boundary() {
+        let (_dir, root, config, matcher) = setup_project();
+        // Relative to src/users/ (the importing file's directory), "./d/x"
+        // must name src/users/d/x.ts.
+        fs::create_dir_all(root.join("src/users/d")).unwrap();
+        fs::write(root.join("src/users/d/x.ts"), "export class X {}").unwrap();
+        let mut resolver = DtoResolver::new(&root, Path::new("src"), &config, &matcher);
+        let from = Path::new("src/users/users.controller.ts");
+        for _ in 0..MAX_IMPORT_EDGES {
+            assert!(
+                resolver
+                    .resolve_imported_module("X", "./d/x", from)
+                    .is_some()
+            );
+        }
+        // The edge that would exceed the budget is not followed.
+        assert!(
+            resolver
+                .resolve_imported_module("X", "./d/x", from)
+                .is_none()
+        );
+        assert!(
+            resolver
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("import edge limit"))
         );
     }
 }

@@ -95,32 +95,44 @@ of CI.
 
 The shipped resolver (v0.2.0) reads TypeScript files selected by import
 specifiers — untrusted source input. Satisfied by the shipped
-implementation:
+implementation (containment and budget enforcement completed in Phase 11.1,
+Milestone 11.1.1, 2026-11-10):
 
 - lexical traversal (`..` escaping the project) is rejected; dependency
   resolution never escapes the project root lexically;
+- **containment is enforced before any dependency read**
+  (`resolve/containment.rs`): the project root is canonicalized once; the
+  candidate path must be relative and free of dot components; **no path
+  component may be a symlink** (rejecting symlinked targets, symlinked
+  intermediate directories, and — since loops require following a link —
+  symlink loops); and the final target must be a **regular file**.
+  Directories, FIFOs, sockets, and devices are rejected (opening a blocking
+  special file would stall the analyzer). Candidate selection uses
+  `symlink_metadata`, never `Path::exists()`, so a symlinked candidate is
+  selected deliberately and then rejected with a precise diagnostic instead
+  of being silently followed;
 - the existing source exclusion policy applies to imported files
   (`node_modules` and `.git` components are hard-skipped; configured
   exclude patterns apply); Controller discovery semantics unchanged;
 - `node_modules` is never traversed, no packages are installed, and there
   is no network access;
 - bounded work is enforced: four re-export hops, 512 dependency files,
-  4 MiB aggregate dependency bytes, 256 KiB per file, 64 properties per
-  DTO (`MAX_IMPORT_EDGES` is declared but not enforced;
-  `MAX_DTO_DECLARATIONS` warns only);
+  4,096 import edges, 4 MiB aggregate dependency bytes, 256 KiB per file,
+  1,024 DTO declarations per run, 64 properties per DTO. All budgets share
+  reject-the-exceeding-operation semantics (a module is analyzed completely
+  or not at all); counters use checked/saturating arithmetic;
 - source is parsed with Oxc only; TypeScript is never executed and modules
   are never resolved by invoking Node or `tsc`;
-- an unreadable or malformed dependency degrades to an unknown body shape,
-  never to a route deletion or an invented body.
+- an unreadable, rejected, or malformed dependency degrades to an unknown
+  body shape, never to a route deletion or an invented body.
 
-**Open gap (tracked in `KNOWN_ISSUES.md`):** module containment is
-lexical only. The resolver does not canonicalize paths, reject symlinks,
-or validate regular-file targets — a symlink inside the source tree could
-point the resolver at a file outside the project. Nothing is executed
-regardless of what is read. Before this gap is closed, the resolver must:
-reject symlinked targets and intermediate directories, loops, directories,
-special files, and non-regular targets; and not rely on `Path::exists()`
-for authorization.
+**Residual race (accepted, documented):** containment validation and the
+read are separate operations; a concurrent process can swap a path
+component between the two. The consequence is bounded to reading swapped
+file content — nothing read is ever executed, written, or evaluated — and
+perfect closure would require platform-specific open flags (`O_NOFOLLOW`)
+that are deliberately not used. This is stated as defense in depth, not as
+a guaranteed security boundary.
 
 For Watch Mode, dependency events must invalidate dependants or trigger a
 safe full resync (not yet wired: dependency-only changes are currently

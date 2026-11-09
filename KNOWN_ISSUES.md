@@ -91,13 +91,30 @@ Resolved and verified:
   `.ts`/`.mts`/`.cts` sources. Found via a real NestJS project
   (`moduleResolution: "NodeNext"`) where `z.infer` DTOs imported as `.js`
   resolved to nothing and bodies stayed `BodyShape::Unknown`.
+- ~~Import path containment is lexical only~~ — enforced 2026-11-10
+  (Milestone 11.1.1): `resolve/containment.rs` canonicalizes the project
+  root once and validates every dependency read (no symlink components,
+  regular-file target); candidate selection uses `symlink_metadata` so
+  symlink targets, intermediate directories, loops, directories and special
+  files are rejected with a diagnostic and degrade to `BodyShape::Unknown`.
+  Residual validation/read race accepted (below).
+- ~~Graph budgets partly declarative~~ — enforced 2026-11-10
+  (Milestone 11.1.1): `MAX_IMPORT_EDGES` is counted per specifier
+  resolution and the exceeding edge is not followed; `MAX_DTO_DECLARATIONS`
+  rejects whole the module that would exceed the budget (previously warned
+  only). Counters use checked/saturating arithmetic; boundary tests cover
+  each limit at the exact value and immediately beyond.
 
 Still open (deferred; the accepted limitations of the shipped feature):
 
-- **Import path containment is lexical only.** `resolve/module.rs` checks
-  for `..` escapes and existence but does not canonicalize or reject
-  symlinks; an imported symlink could point outside the project. Nothing
-  is ever executed regardless; hardening is tracked as a follow-up.
+- **Validation/read race in dependency containment.** Milestone 11.1.1
+  validates each dependency path (symlink-free components, regular-file
+  target, canonical-root containment) and then reads it in a separate
+  operation; a concurrent process can swap a component in between. The
+  consequence is limited to reading swapped content — nothing is ever
+  executed or written based on dependency files. Documented in
+  `resolve/containment.rs` and `docs/security.md`; not claimable as a
+  closed TOCTOU window.
 - **Duplicate parsing.** The controller is parsed by `extract.rs` and again
   by the resolver for imports; each dependency module is parsed twice
   (module analysis + Zod analysis). A `ModuleAnalysis` source clone is
@@ -113,11 +130,6 @@ Still open (deferred; the accepted limitations of the shipped feature):
   blobs from the index without project context, so cross-file resolution
   is disabled there (same-file DTOs only). This is the safe behavior until
   an index-only source provider exists.
-- **Graph budgets partly declarative.** `MAX_IMPORT_EDGES` (4,096) is
-  declared but not enforced; `MAX_DTO_DECLARATIONS` (1,024) emits a
-  warning without stopping extraction. `MAX_REEXPORT_HOPS` (4),
-  `MAX_DEPENDENCY_FILES` (512) and `MAX_TOTAL_DEPENDENCY_BYTES` (4 MiB)
-  are enforced.
 - **Zod analyzer gaps.** Multi-step transformation chains are not
   recognized (only a single transformation applied to a base schema
   identifier); `z.infer` resolves only against same-file const schemas

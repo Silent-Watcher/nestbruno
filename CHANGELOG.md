@@ -4,6 +4,45 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- Cross-file dependency reads are validated before being opened
+  (Phase 11.1, Milestone 11.1.1): the project root is canonicalized once;
+  every path component must be symlink-free; the target must be a regular
+  file. Symlinked targets, symlinked intermediate directories, symlink
+  loops, directories, and special files (FIFOs, sockets, devices) are
+  rejected with a diagnostic and degrade to the conservative
+  `BodyShape::Unknown` — never partially read. Candidate selection uses
+  `symlink_metadata` instead of `Path::exists()`, so symlinked candidates
+  are rejected precisely instead of being followed. A validation/read race
+  remains possible on a concurrently modified tree; nothing read is ever
+  executed, and the limitation is documented rather than overstated.
+
+### Fixed
+
+- `MAX_IMPORT_EDGES` (4,096) is now enforced: each specifier that resolves
+  to a project module consumes one edge, and the edge that would exceed the
+  budget is not followed (previously the constant was declared but never
+  counted).
+- `MAX_DTO_DECLARATIONS` (1,024) is now enforced: the module that would
+  push a run past the budget is rejected whole instead of only emitting a
+  warning, so no partially tracked declaration set is published.
+- Resolver counters use checked/saturating arithmetic, and all budgets now
+  share documented reject-the-exceeding-operation boundary semantics
+  (`src/resolve/limits.rs`).
+
+## [0.2.1] — 2026-11-09
+
+### Fixed
+
+- NodeNext-style import specifiers resolve to their TypeScript sources:
+  `./x.dto.js` now finds `x.dto.ts` (likewise `.mjs`/`.cjs` to
+  `.mts`/`.cts`). Projects with `moduleResolution: "NodeNext"` previously
+  got `BodyShape::Unknown` for every cross-file DTO because the resolver
+  only tried `.ts`-suffixed candidates.
+
 ## [0.2.0] — 2026-11-09
 
 ### Added

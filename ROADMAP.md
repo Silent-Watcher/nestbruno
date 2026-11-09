@@ -1,9 +1,11 @@
-# ROADMAP.md — remaining phases (10–11)
+# ROADMAP.md — remaining phases (10–13)
 
 Based on the authoritative owner prompts and the actual state in
 [PROGRESS.md](PROGRESS.md). Phases 1–9 are complete in the committed product
 history. Phase 10 and Phase 11 are separate: do not overwrite or renumber the
-OpenAPI work.
+OpenAPI work. The development sequence is Phase 11.1 → Phase 12 → Phase 13,
+executed milestone by milestone with per-milestone commits; Phase 10 remains
+OpenAPI interoperability and is not scheduled in that arc.
 
 Each phase starts only within its authorized scope. Do not create commits
 unless explicitly requested. Quality gates are required before any commit:
@@ -55,6 +57,49 @@ Deferred to a future phase (tracked in [KNOWN_ISSUES.md](KNOWN_ISSUES.md)):
 The canonical engineering record is in
 [`docs/phases/phase-11-cross-file-dto-resolution.md`](docs/phases/phase-11-cross-file-dto-resolution.md).
 The user-facing guide is `website/guide/dto-resolution.md`.
+
+## Phase 11.1 — Cross-file DTO resolver completion — In Progress (started 2026-11-10)
+
+Completes the engineering work deferred from Phase 11, milestone by
+milestone (owner-authorized master prompt, 2026-11-10):
+
+1. **11.1.1 Resolver security hardening and resource enforcement** —
+   completed 2026-11-10: canonical-root containment with symlink/regular-file
+   validation (`resolve/containment.rs`), `MAX_IMPORT_EDGES` and
+   `MAX_DTO_DECLARATIONS` enforced, checked arithmetic, boundary tests.
+2. 11.1.2 Run-scoped resolver context, module caching, single parsing.
+3. 11.1.3 Dependency-aware Watch Mode (reverse dependency index or safe
+   full-resync fallback; incremental result must equal a fresh sync
+   byte-for-byte).
+4. 11.1.4 Git-index-only source provider; cross-file resolution for
+   `sync --staged` (index/worktree divergence must resolve to the index
+   version).
+5. 11.1.5 Complete the Zod analyzer subset (multi-step chains, `z.infer`
+   through imports, namespace-imported `createZodDto`, `package.json`
+   `imports` local subpaths).
+6. 11.1.6 Resolver acceptance (integration + property) tests and
+   documentation synchronization.
+
+A version bump follows at phase completion per the owner's semver rule
+(fix/hardening → patch at minimum; shipped features may justify minor).
+
+## Phase 12 — Global prefix and URI versioning — Not Started
+
+Static extraction of `app.setGlobalPrefix()` and `VersioningType.URI`
+versioning (application default, controller- and method-level
+`@Version`, `VERSION_NEUTRAL`) composed in the route IR — not as string
+replacement in the generator. Route identity must be preserved where a
+safe update is possible; multiple version variants must stay
+distinguishable. Non-URI versioning strategies are identified but never
+silently interpreted as URI prefixes.
+
+## Phase 13 — Query DTO and Param DTO resolution — Not Started
+
+Extends the shared resolver (same context, cache, limits, source
+providers) to unnamed `@Query()` and `@Param()` object parameters:
+DTO-derived disabled query parameters, and param metadata matched
+against URL-derived path parameters without ever inventing placeholders.
+Named `@Query('x')`/`@Param('x')` semantics are preserved unchanged.
 
 ## Cross-phase notes
 

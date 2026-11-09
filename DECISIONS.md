@@ -32,6 +32,8 @@ requires a concrete reason recorded next to the phase doc.
 | 23 | Re-export traversal is capped at four hops and uses explicit cycle/symbol state | Phase 11 handoff | deterministic, bounded graph resolution |
 | 24 | Class/interface DTOs and statically recognized Zod schemas share the existing `BodyShape` IR | Phase 11 handoff | keeps generation independent of TypeScript and Zod |
 | 25 | Unsupported, ambiguous, malformed, or uncertain DTO metadata stays `BodyShape::Unknown` | Phase 11 handoff | never generate a guessed or partial request-body shape |
+| 26 | Dependency reads are gated by symlink-free, regular-file containment against the canonical project root (`resolve/containment.rs`); candidate selection never follows links | Phase 11.1, Milestone 11.1.1 | untrusted trees must not redirect dependency reads through symlinks; special files must never be opened (a FIFO would block the analyzer) |
+| 27 | All resolver budgets share reject-the-exceeding-operation semantics; `MAX_IMPORT_EDGES` and `MAX_DTO_DECLARATIONS` are enforced, not advisory | Phase 11.1, `resolve/limits.rs` | no partially tracked state is ever published; budget exhaustion degrades to `BodyShape::Unknown` |
 
 ## Deliberately *not* decided / open
 

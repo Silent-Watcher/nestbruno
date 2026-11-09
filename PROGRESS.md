@@ -227,6 +227,45 @@ Completed after verification (2026-11-09):
   pass; fmt and clippy `-D warnings` clean. Verified end-to-end on the same
   project (`sync` now emits the expected body skeletons).
 
+### Phase 11.1 — Cross-file DTO resolver completion (started 2026-11-10)
+
+Owner-authorized master prompt: six milestones completing Phase 11's
+deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
+(query/param DTOs). Version bump per completed phase, semver
+(owner rule 2026-11-10). Milestones are committed individually.
+
+#### Milestone 11.1.1 — Resolver security hardening and resource enforcement (completed 2026-11-10)
+
+- **Containment** (`src/resolve/containment.rs`, new): the project root is
+  canonicalized once at resolver construction (failure disables cross-file
+  resolution with a warning); every dependency read is validated to be
+  project-relative with no dot components, symlink-free at every component
+  (rejects targets, intermediate directories, and loops), and a regular
+  file at the final target (rejects directories and blocking/special
+  files). `resolve/module.rs` candidate selection switched from
+  `Path::exists()` to `symlink_metadata`, so symlink candidates are
+  selected deliberately and rejected with a precise diagnostic instead of
+  being followed silently (`exists()` hides loops behind `ELOOP`).
+  Rejections degrade to `DtoResolution::Unknown`.
+- **Budgets** (`src/resolve/limits.rs`, `src/resolve/mod.rs`):
+  `MAX_IMPORT_EDGES` (4,096) counted per successful specifier resolution,
+  the exceeding edge not followed; `MAX_DTO_DECLARATIONS` (1,024) rejects
+  whole the module that would exceed it (was warning-only). All counters
+  checked/saturating; boundary semantics documented: the operation that
+  would exceed a budget is rejected in full; a module is analyzed
+  completely or not at all.
+- **Tests** (+20): containment unit tests (valid file, absolute/parent
+  paths, missing, directory, socket; unix: symlink target outside root,
+  symlinked intermediate dir, loop), resolver integration tests (symlink
+  target/intermediate/loop → `Unknown` + diagnostic, directory and socket
+  dependencies rejected, missing-then-created dependency recovers), and
+  exact-boundary tests for every budget (files 512/513, bytes 4 MiB exact
+  and +ε, per-file 256 KiB and +1, declarations 1,024 exact and +1,
+  edges 4,096 and +1, re-export depth exactly 4).
+- Gates: fmt + clippy `-D warnings` clean; 559 tests pass (was 539).
+- Residual accepted race (validation and read are separate operations) is
+  documented in the module doc and `docs/security.md`, not claimed closed.
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing
