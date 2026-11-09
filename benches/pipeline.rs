@@ -18,9 +18,10 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use nestbruno::bruno::generate;
 use nestbruno::bruno::writer::write_collection;
 use nestbruno::config::Config;
-use nestbruno::discovery::discover_controllers;
+use nestbruno::discovery::{Matcher, discover_controllers};
 use nestbruno::nest::extract::extract_controllers;
 use nestbruno::project::Project;
+use nestbruno::route::BodyShape;
 use nestbruno::sync::{Desired, synchronize};
 
 /// A controller with three routes (one with path param, one with body).
@@ -87,6 +88,61 @@ fn bench_generate(criterion: &mut Criterion) {
         bench.iter(|| {
             let generation = generate(black_box(&config), black_box(&analysis.controllers));
             assert_eq!(generation.requests.len(), 300);
+        })
+    });
+    group.finish();
+}
+
+/// A controller whose `@Post` body type is a class DTO defined in a separate
+/// file, reached through a relative import — the Phase 11 cross-file case.
+fn bench_extract_cross_file_dto(criterion: &mut Criterion) {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    fs::create_dir_all(src.join("dto")).unwrap();
+    let dto_source = "export class CreateUserDto {\n\
+                      \x20 name: string;\n\
+                      \x20 email: string;\n\
+                      \x20 password: string;\n\
+                      }\n";
+    fs::write(src.join("dto/create-user.dto.ts"), dto_source).unwrap();
+    let controller_source = "import { Controller, Get, Post, Body } from '@nestjs/common';\n\
+                             import { CreateUserDto } from './dto/create-user.dto';\n\
+                             \n\
+                             @Controller('users')\n\
+                             export class UsersController {\n\
+                             \x20 @Get()\n\
+                             \x20 findAll() {}\n\
+                             \n\
+                             \x20 @Post()\n\
+                             \x20 create(@Body() dto: CreateUserDto) {}\n\
+                             }\n";
+    fs::write(src.join("users.controller.ts"), controller_source).unwrap();
+    let project = Project::open(dir.path()).unwrap();
+    let config = Config::default();
+    let matcher = Matcher::new(&config).unwrap();
+
+    let mut group = criterion.benchmark_group("extract_cross_file");
+    group.bench_function("1_controller_1_shared_dto", |bench| {
+        bench.iter(|| {
+            let analysis = extract_controllers(
+                Path::new("src/users.controller.ts"),
+                black_box(controller_source),
+                Some(project.root()),
+                Some(&config.source),
+                Some(&config),
+                Some(&matcher),
+            );
+            assert_eq!(analysis.controllers.len(), 1);
+            // The imported DTO must have been resolved to its three fields;
+            // otherwise the benchmark would measure the Unknown fallback.
+            assert_eq!(
+                analysis.controllers[0].routes[1].body,
+                BodyShape::Fields(vec![
+                    "name".to_owned(),
+                    "email".to_owned(),
+                    "password".to_owned(),
+                ])
+            );
         })
     });
     group.finish();
@@ -179,6 +235,6 @@ fn bench_sync_noop(criterion: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().sample_size(20).warm_up_time(std::time::Duration::from_millis(500)).measurement_time(std::time::Duration::from_secs(3));
-    targets = bench_extract, bench_generate, bench_discover, bench_sync_noop
+    targets = bench_extract, bench_extract_cross_file_dto, bench_generate, bench_discover, bench_sync_noop
 );
 criterion_main!(benches);
