@@ -7,8 +7,13 @@ without running your application.
 ## Key features
 
 - Static analysis only: your TypeScript is never executed.
-- Safe by design: configured paths cannot escape the project.
+- Cross-file DTO resolution: follows local imports to class, interface and
+  Zod DTO definitions and generates JSON body skeletons (values `null`,
+  max 64 fields).
+- Safe synchronization: ownership stamps, conflict reporting, atomic
+  writes; your hand-edited requests are never overwritten.
 - Deterministic output, suitable for Git diffs.
+- Watch mode and Git staged sync.
 
 ## Installation
 

@@ -26,9 +26,11 @@ export default defineConfig({
             { text: 'Getting Started', link: '/guide/getting-started' },
             { text: 'Commands', link: '/guide/commands' },
             { text: 'Configuration', link: '/guide/configuration' },
+            { text: 'DTO Resolution', link: '/guide/dto-resolution' },
             { text: 'Synchronization Model', link: '/guide/synchronization' },
             { text: 'Watch Mode', link: '/guide/watch-mode' },
             { text: 'Safety & Ownership', link: '/guide/safety' },
+            { text: 'Benchmarks', link: '/guide/benchmarks' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
             { text: 'Limitations & FAQ', link: '/guide/limitations' }
           ]
@@ -46,7 +48,7 @@ export default defineConfig({
             { text: 'Phase 5 — Synchronization', link: '/phases/phase-05' },
             { text: 'Phase 6 — Watch Mode', link: '/phases/phase-06' },
             { text: 'Phase 7 — Staged Synchronization', link: '/phases/phase-07' },
-            { text: 'Phase 11 — Cross-File DTO Resolution (in progress)', link: '/phases/phase-11' }
+            { text: 'Phase 11 — Cross-File DTO Resolution', link: '/phases/phase-11' }
           ]
         }
       ]

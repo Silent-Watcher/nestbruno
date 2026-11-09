@@ -205,7 +205,13 @@ Remaining work (deferred to future phases):
 - Watch Mode dependency invalidation
 - Staged Sync dependency resolution from Git index
 - Comprehensive integration/property tests
-- Benchmarks and user-facing docs
+
+Completed after verification (2026-11-09):
+- Cross-file resolution Criterion benchmark
+  (`extract_cross_file/1_controller_1_shared_dto`, ~40 µs median,
+  i7-1255U/Linux); recorded in `website/guide/benchmarks.md`.
+- User-facing documentation: `website/guide/dto-resolution.md`,
+  updated landing page, limitations, safety and phase pages.
 
 ## Known gaps inside completed phases
 
@@ -215,7 +221,7 @@ summary lives in `docs/project-status.md` ("Current limitations").
 ## Documentation website (added 2026-11-06, after Phase 6)
 
 `website/` holds a VitePress site with the product guide, landing page,
-phase overview, and selected phase pages. Phase 9 is shipped; Phase 11 is
-listed as in-progress and must not be described as released. The latest
-handoff did not run `npm run build`, so the current site build status is
-unknown. Keep website claims aligned with verified product behavior.
+phase overview, and selected phase pages. Phases 9 and 11 are shipped and
+described as such (DTO Resolution and Benchmarks guide pages added
+2026-11-09). Keep website claims aligned with verified product behavior;
+run `npm run build` in `website/` after content changes.

@@ -12,11 +12,13 @@ Phase 6.
 | Phase | Title | Notes |
 | --- | --- | --- |
 | 10 | OpenAPI interoperability | **Not started** — export/validate from the route IR; never reparse TypeScript |
-| 11 | Cross-file DTO resolution (class + Zod) | **Partial / unverified** — on-demand local import resolution; see [Phase 11 handoff](phases/phase-11-cross-file-dto-resolution.md) |
+| 11 | Cross-file DTO resolution (class + Zod) | **Completed** (2026-11-09) — shipped in v0.2.0; see [Phase 11 record](phases/phase-11-cross-file-dto-resolution.md) |
 
-Phase 11 is not a released capability. Its source-level findings, owner-approved
-constraints, implementation sequence, and completion criteria are documented
-in [phases/phase-11-cross-file-dto-resolution.md](phases/phase-11-cross-file-dto-resolution.md).
+Phase 11 shipped with a deliberately deferred tail (symlink-safe containment,
+run-scoped resolver caching, watch-mode dependency invalidation, staged
+dependency resolution); the accepted limitations are tracked in the
+repository's `KNOWN_ISSUES.md` and the user-facing
+[DTO Resolution guide](../../website/guide/dto-resolution.md).
 
 Candidates raised by measurements but not scheduled: restricting the Watch
 Mode reconciliation pass to affected routes (see

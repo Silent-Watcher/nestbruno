@@ -20,9 +20,17 @@ NestBruno reflects what is statically visible in decorators. Not modelled:
   write-time verification).
 - **Not generated:** `@All` routes, unresolved/array paths, paths with `?`,
   `#`, whitespace or <span v-pre>`{{`</span>. Body examples are skeletons,
-  not full validation schemas. DTO field extraction currently recognizes
-  class/interface declarations in the Controller file only; imported DTOs and
-  Zod schemas are not yet a verified feature.
+  not full validation schemas. DTO resolution has boundaries — see
+  [DTO Resolution](/guide/dto-resolution) for the full supported subset
+  (same-file DTOs must not use `export`; Zod chains are limited to one
+  statically provable transformation; `createZodDto` classes must live in
+  an imported module).
+- **Watch mode does not invalidate on dependency-only changes** — editing an
+  imported DTO file does not re-analyze controllers that import it until the
+  controller itself changes. Run a plain `sync` to pick up dependency edits.
+- **`sync --staged` resolves same-file DTOs only** — cross-file imports are
+  not resolved from the Git index snapshot (dependency content would mix
+  index and working-tree state).
 - **No environment or `folder.bru`** — `baseUrl` must be defined by you.
 - **Output verified with Bruno's parser library**, not by opening the
   desktop app; Windows/macOS are exercised in CI but were developed on

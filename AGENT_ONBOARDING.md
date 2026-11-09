@@ -24,12 +24,24 @@ Keep the library-first boundary. Route IR stays independent of Bruno and
 TypeScript parser details. The generator never reads TypeScript. NestBruno
 must never execute the target application or imported source.
 
-## Current task: Phase 11
+## Current task: no active phase
 
-Phase 10 remains **OpenAPI interoperability**. Cross-file DTO support is
-Phase 11 and is currently **partial / unverified**.
+Phase 11 (cross-file DTO resolution) is **complete, verified and shipped**
+in v0.2.0 (commits `d7bc701` and `3c0dbf5`). Phase 10 remains **OpenAPI
+interoperability** and has not started — do not begin it without owner
+authorization.
 
-Owner-approved scope:
+Phase 11 accepted deferred edges (tracked in `KNOWN_ISSUES.md`, must not be
+silently changed):
+
+- Path containment for imported files is lexical only (no canonical
+  symlink validation).
+- The resolver cache is per route; dependency modules are parsed twice.
+- Watch Mode does not invalidate controllers on dependency-only changes.
+- Staged Sync resolves same-file DTOs only (no Git-index dependency
+  provider yet).
+
+Owner-approved Phase 11 scope (for reference when touching the resolver):
 
 - Resolve dependencies on demand from imports of already-discovered
   Controllers; never scan the whole source tree for DTOs.
@@ -39,27 +51,15 @@ Owner-approved scope:
 - Follow at most four re-export hops; detect cycles explicitly.
 - Support exported class/interface DTOs and a conservative Zod subset
   (`z.object`, aliases, `z.infer`, imported schemas, statically recognizable
-  `createZodDto`, and safe transformations).
+  `createZodDto` with import provenance, and safe transformations).
 - Keep unsupported or ambiguous shapes as `BodyShape::Unknown`.
-- Keep dependency traversal bounded, caches run-scoped, and Oxc ASTs short-
-  lived. Preserve the existing 64-property DTO limit.
-- Watch Mode and Git Staged Sync are in scope. Staged dependencies must come
-  only from the index snapshot; never read a staged Controller with a
-  worktree DTO.
-
-Read the canonical Phase 11 handoff for the source-level blockers and exact
-next-step sequence. Do not rely on the old Phase 10 proposal or the previous
-version of this onboarding file; those contained conflicting or unverified
-claims (including full-tree discovery, `node_modules`, 16-hop resolution,
-1 MiB source files, and 1,024 properties).
+- Keep dependency traversal bounded and Oxc ASTs short-lived. Preserve the
+  existing 64-property DTO limit.
 
 ## Current working tree
 
-The supplied project snapshot contains pre-existing, uncommitted source
-changes in `src/lib.rs`, `src/nest/extract.rs`, `src/nest/extract/tests.rs`,
-`src/nest/mod.rs`, and untracked files under `src/resolve/`. Preserve and inspect
-these changes; do not reset, clean, stash, or overwrite them. See the Phase 11
-handoff for a precise inventory and known blockers.
+Clean as of the 2026-11-09 documentation pass. Phase 11 implementation was
+committed as `d7bc701`; version 0.2.0 packaging as `3c0dbf5`.
 
 ## Quality and safety rules
 

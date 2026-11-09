@@ -40,6 +40,28 @@ guessed, never evaluated.
 - Discovery never follows symlinks inside the source tree (loops terminate;
   nothing outside the project is read).
 
+## Import analysis boundaries
+
+Cross-file DTO resolution reads additional TypeScript files — the files
+your controllers import. This is bounded and conservative, with known
+edges:
+
+- Only modules reachable from **imports of discovered controller files**
+  are read; the resolver never scans the source tree for DTO files and
+  never enters `node_modules`.
+- Work is bounded per run: four re-export hops, 512 dependency files,
+  4 MiB aggregate dependency source, 256 KiB per file, 1024 DTO
+  declarations, 64 properties per DTO. Exceeding a bound yields an
+  `Unknown` body with a warning — never unbounded traversal.
+- Imported files are subject to the same read rules as controller files
+  (`.git` and `node_modules` components are hard-skipped; configured
+  exclude patterns apply).
+- **Known gap:** module containment is currently checked lexically (no
+  `..` that escapes the project), but canonical symlink validation for
+  imported files is not yet enforced — a symlink inside the source tree
+  could point the resolver at a file outside it. Hardening this is a
+  recorded follow-up; nothing is ever executed regardless of what is read.
+
 ## Your files are never clobbered
 
 - Writes are atomic: content is fully built and validated in memory, then

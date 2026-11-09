@@ -18,15 +18,17 @@ reparse TypeScript. Keep deterministic output, conservative schemas, no
 network access, no `$ref` fetching, and no execution. This roadmap item is
 unchanged by Phase 11.
 
-## Phase 11 — Cross-file DTO resolution (class + Zod) — Partial / unverified
+## Phase 11 — Cross-file DTO resolution (class + Zod) — Completed (2026-11-09)
 
-The owner authorized Phase 11 on 2026-11-08. The supplied source tree contains
-an incomplete implementation attempt; it is not a shipped capability.
+The owner authorized Phase 11 on 2026-11-08. Implementation was verified on
+2026-11-09 (535 tests, fmt + clippy `-D warnings` clean) and shipped in
+v0.2.0 with a cross-file resolution benchmark
+(`extract_cross_file/1_controller_1_shared_dto`, ~40 µs median).
 
-Approved scope:
+Shipped scope:
 
 - On-demand resolution from imports reachable from discovered Controllers;
-  never scan the whole `.ts` tree for DTOs.
+  never scans the whole `.ts` tree for DTOs.
 - Local relative imports and a limited static `tsconfig.json` subset:
   `baseUrl`, `paths`, simple `*` wildcard mappings, implicit/explicit `.ts`,
   and directory `index.ts` resolution.
@@ -37,21 +39,22 @@ Approved scope:
   resolution, and bounded dependency/resource budgets.
 - Exported class/interface DTOs plus a conservative Zod subset (`z.object`,
   aliased/named imports, `z.infer`, imported/re-exported schemas,
-  `createZodDto`, and safely understood transformations).
+  `createZodDto` with import provenance required, and safely understood
+  transformations).
 - Class and Zod extraction share the existing `BodyShape` contract. Unsupported
-  or ambiguous results are `Unknown`, never guessed or partially accepted.
-- Watch Mode invalidates all dependent Controllers. Staged Sync resolves all
-  dependencies from the captured Git index only, never the working tree.
-- No changes to the analyzed NestJS project; resolver code lives in this Rust
-  repository.
+  or ambiguous results are `Unknown`, never guessed or partially accepted
+  (`Uncertain` → `Unknown` is pinned by extraction tests).
 
-The canonical handoff, inspected working-tree state, verified blockers, and
-recommended narrow implementation sequence are in
+Deferred to a future phase (tracked in [KNOWN_ISSUES.md](KNOWN_ISSUES.md)):
+
+- Watch Mode invalidation on dependency-only changes.
+- Staged Sync dependency resolution from the captured Git index only.
+- Canonical (symlink-safe) path containment for imported files.
+- Run-scoped resolver caching and single-parse module analysis.
+
+The canonical engineering record is in
 [`docs/phases/phase-11-cross-file-dto-resolution.md`](docs/phases/phase-11-cross-file-dto-resolution.md).
-
-Historical Phase 9 quality gates passed with 495 tests. The modified Phase 11
-working tree has not yet been verified in a Rust-enabled environment. No
-Phase 11 benchmark figures or test counts may be published until measured.
+The user-facing guide is `website/guide/dto-resolution.md`.
 
 ## Cross-phase notes
 

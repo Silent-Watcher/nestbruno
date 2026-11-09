@@ -4,19 +4,19 @@
 
 ## One-paragraph state
 
-The last verified committed product state is `c95e4ab` (Phase 9 complete): a
-Rust 2024 / MSRV 1.91 CLI that statically analyzes NestJS routes and keeps a
-Bruno collection synchronized. Phases 1–9 are complete in the committed
-history. Phase 10 remains **OpenAPI interoperability** and has not started.
-Phase 11 (Cross-file DTO resolution) has been **implemented and verified**
-in the working tree as of 2026-11-09. All quality gates pass.
+The product is at **v0.2.0** (commits `d7bc701` Phase 11 feature,
+`3c0dbf5` version bump): a Rust 2024 / MSRV 1.91 CLI that statically
+analyzes NestJS routes and keeps a Bruno collection synchronized.
+Phases 1–9 and 11 are complete in the committed history. Phase 10 remains
+**OpenAPI interoperability** and has not started. The Phase 11 working
+tree was committed on 2026-11-09 after verification.
 
 ## Repository snapshot
 
-- Base commit: `c95e4ab` (`bump version up`).
-- Modified files: `src/lib.rs`, `src/nest/extract.rs`, `src/nest/extract/tests.rs`, `src/nest/mod.rs`, `src/resolve/` (new), `AGENTS.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `KNOWN_ISSUES.md`, `PROGRESS.md`, `ROADMAP.md`, `STATUS.md`, `docs/architecture.md`, `docs/project-status.md`, `docs/roadmap.md`, `docs/security.md`, `benches/pipeline.rs`, `website/.vitepress/config.mts`, `website/guide/limitations.md`, `website/phases/index.md`, `website/phases/phase-11.md` (new), `docs/phases/phase-11-cross-file-dto-resolution.md` (new).
-- Do not reset, clean, stash, or overwrite this in-progress work without
-  explicit direction. No commit was created during this session.
+- Phase 11 implementation: commit `d7bc701`.
+- Version 0.2.0 + crates.io packaging (`include` list): commit `3c0dbf5`.
+- Documentation overhaul (this file and the rest): the current working
+  tree as of 2026-11-09.
 
 ## Current verified results (working tree, 2026-11-09)
 
@@ -33,19 +33,20 @@ in the working tree as of 2026-11-09. All quality gates pass.
 | `check` | validates config + source directory |
 | `discover` | lists Controller candidate files |
 | `routes` | prints routes, params and source locations |
-| `generate [--force]` | writes `.bru` requests with parameter metadata and same-file DTO body skeletons |
+| `generate [--force]` | writes `.bru` requests with parameter metadata and cross-file DTO/Zod body skeletons |
 | `sync [--dry-run]` | reconciles generated requests; preserves conflicts and user edits |
 | `sync --staged [--dry-run]` | reconstructs desired state from the Git index for relevant Controller files |
 | `watch [--debounce MS]` | incremental route sync with full-resync fallbacks |
 
-**New in Phase 11 (working tree, not yet committed):**
+**New in Phase 11 (shipped in v0.2.0):**
 - Cross-file class/interface DTO resolution from imports in Controller files
 - Cross-file Zod schema resolution including conservative transformation chains (extend, pick, omit, partial, required, strict, passthrough, strip)
 - `z.infer<typeof Schema>` type aliases
 - `createZodDto(Schema)` classes (including cross-file schema references)
-- On-demand resolution bounded by: 4 re-export hops, 50 dependency files, 10 MB total dependency bytes, 200 DTO declarations
+- On-demand resolution bounded by: 4 re-export hops, 512 dependency files, 4 MiB total dependency bytes, 1024 DTO declarations (warning)
 - Cycle detection via (module, symbol) resolution stack
 - Uncertain/ambiguous results → `BodyShape::Unknown` (conservative)
+- Benchmark `extract_cross_file/1_controller_1_shared_dto` — ~40 µs median (2026-11-09, i7-1255U)
 
 ## Phase 11 — remaining work (deferred to future phases)
 
@@ -53,8 +54,11 @@ in the working tree as of 2026-11-09. All quality gates pass.
 2. Make parsing/cache run-scoped (avoid duplicate parsing)
 3. Watch Mode dependency invalidation
 4. Staged Sync dependency resolution from Git index
-5. Comprehensive integration/property tests
-6. Benchmarks and user-facing docs
+5. Comprehensive integration/property tests for the resolver
+
+Benchmarks and user-facing documentation were completed 2026-11-09
+(`extract_cross_file` Criterion benchmark; `website/guide/dto-resolution.md`
+and `website/guide/benchmarks.md`).
 
 See `KNOWN_ISSUES.md` for the full source-level list and exact remediation
 areas.

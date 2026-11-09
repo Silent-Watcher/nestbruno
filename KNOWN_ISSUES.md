@@ -41,7 +41,8 @@ assertions, not guarantees, and re-verify before relying on them:
 - ~~**No `LICENSE`**~~ — resolved 2026-11-06: MIT chosen by the owner,
   `LICENSE` added, `license = "MIT"` in Cargo.toml,
   `cargo publish --dry-run` passes.
-- **No benchmark suite** — planned for Phase 8.
+- ~~**No benchmark suite**~~ — resolved in Phase 8: `benches/pipeline.rs`
+  (Criterion) with a cross-file resolution benchmark added 2026-11-09.
 - **Watch e2e tests Unix-only**; CI matrix (linux/macos/windows) exercised
   on Linux only.
 - **Check-then-write races** in sync/watch (documented limitation in
@@ -65,58 +66,58 @@ assertions, not guarantees, and re-verify before relying on them:
   Not a project bug; recorded so agents don't misdiagnose it.
 
 
-## Phase 11 — current unverified implementation blockers (2026-11-08)
+## Phase 11 — resolution state (updated 2026-11-09, verified)
 
-These are source-inspection findings from the supplied, uncommitted working
-tree. They are not represented as passing/failing test results because the
-Rust toolchain was unavailable during this handoff.
+The 2026-11-08 blocker list below was based on an unverified working tree.
+Phase 11 was then completed and verified (535 tests, fmt + clippy
+`-D warnings` clean) and shipped in v0.2.0. Disposition of the former
+blockers:
 
-- **Uncertain Zod output — fix pending verification:** the inspected version
-  mapped `DtoResolution::Uncertain` to `BodyShape::Fields`. The latest handoff
-  changes this branch to preserve `BodyShape::Unknown`; an extractor-level
-  regression and compile/test run are still required before closing the issue.
-- **Import path containment is incomplete:** `resolve/module.rs` performs
-  lexical checks and `exists()` checks but no canonical symlink containment or
-  regular-file validation. Absolute/re-export path representation is also
-  inconsistent. Treat as a security blocker before enabling the resolver.
-- **Re-export semantics are incomplete:** aliased re-export names are mapped
-  incorrectly in lookup, and local declarations are considered even without
-  confirming that they are exported. Verify Oxc AST field semantics and map
-  public names to source-local names.
-- **Duplicate parsing:** the Controller is parsed once by `extract.rs` and
-  again by the resolver to discover imports; Zod analysis creates a second Oxc
-  parser pass for a module. A `ModuleAnalysis.source` clone is also retained
-  without a current consumer.
-- **Cache scope too narrow:** the resolver is created by
-  `resolve_cross_file_dtos()` at each route call site, so shared dependencies
-  are not reused across a Controller analysis, much less across Controllers
-  in one run.
-- **Watch dependency changes not wired:** `Workspace::refresh()` uses
-  `Matcher::is_relevant()`, which intentionally matches Controller candidates;
-  ordinary DTO/schema files are ignored. A reverse dependency index or safe
-  full-resync fallback is required.
-- **Staged dependencies not wired:** `analyze_sources()` currently invokes
-  extraction without project/source context, and `staged::collect_sources()`
-  only reads Matcher-relevant Controller entries. The resolver must read each
-  imported dependency from the Git index snapshot on demand, with no working-
-  tree fallback.
-- **Graph budgets are partly declarations only:** `MAX_IMPORT_EDGES` is not
-  enforced; `MAX_DTO_DECLARATIONS` emits a warning but does not stop/cap
-  extraction. Explicit `(module, symbol)` cycle state is absent.
-- **Zod analyzer gaps:** `analyze_chained()` has no call site; `z.infer` must be
-  tied to an imported Zod binding; exported visibility is not consistently
-  validated. The unverified handoff removes the bare-name `createZodDto`
-  fallback and adds a focused regression test, but this has not been executed.
-- **Test coverage is not acceptance coverage:** the uncommitted resolver has
-  unit tests, but comprehensive `.bru` integration, reverse-dependency Watch,
-  staged index/worktree divergence, property tests, and resolver benchmarks
-  have not been verified.
-- **Benchmark call sites updated:** the three existing `extract_controllers()`
-  calls in `benches/pipeline.rs` now pass an explicit empty dependency context
-  for the expanded extractor signature. This compatibility edit is uncompiled.
-- **Debug output removed:** an `eprintln!` in import/re-export extraction was
-  removed during this handoff to avoid leaking debug output into normal CLI
-  execution. This one-line cleanup has not been compiled in this environment.
+Resolved and verified:
 
-The authoritative resolution steps and acceptance checklist are in
-[`docs/phases/phase-11-cross-file-dto-resolution.md`](docs/phases/phase-11-cross-file-dto-resolution.md).
+- ~~Uncertain Zod output~~ — `DtoResolution::Uncertain` now keeps
+  `BodyShape::Unknown` (`src/nest/extract.rs`), pinned by extraction tests.
+- ~~Re-export semantics~~ — aliased re-exports map public names to source
+  names; declarations resolve only through real exported bindings
+  (`src/resolve/mod.rs::lookup_export`), covered by unit tests.
+- ~~Cycle detection~~ — explicit `(module, symbol)` resolution stack;
+  circular imports yield `Unknown` + warning (tested).
+- ~~Bare-name `createZodDto` fallback~~ — removed; a real `nestjs-zod`
+  import is required (`does_not_recognize_unimported_create_zod_dto`).
+- ~~Benchmark call sites~~ — updated and executed (`cargo bench` run
+  2026-11-09; cross-file resolution benchmark added: ~40 µs median).
+
+Still open (deferred; the accepted limitations of the shipped feature):
+
+- **Import path containment is lexical only.** `resolve/module.rs` checks
+  for `..` escapes and existence but does not canonicalize or reject
+  symlinks; an imported symlink could point outside the project. Nothing
+  is ever executed regardless; hardening is tracked as a follow-up.
+- **Duplicate parsing.** The controller is parsed by `extract.rs` and again
+  by the resolver for imports; each dependency module is parsed twice
+  (module analysis + Zod analysis). A `ModuleAnalysis` source clone is
+  retained without a consumer.
+- **Cache scope too narrow.** A fresh `DtoResolver` is built per route, so
+  shared dependency files are re-read/re-parsed across routes and
+  Controllers within one run.
+- **Watch dependency changes not wired.** `Workspace::refresh()` only
+  schedules Matcher-relevant (controller-candidate) files; editing an
+  imported DTO file does not invalidate dependent Controllers. A reverse
+  dependency index or safe full-resync fallback is required.
+- **Staged dependencies not wired.** `sync --staged` analyzes controller
+  blobs from the index without project context, so cross-file resolution
+  is disabled there (same-file DTOs only). This is the safe behavior until
+  an index-only source provider exists.
+- **Graph budgets partly declarative.** `MAX_IMPORT_EDGES` (4,096) is
+  declared but not enforced; `MAX_DTO_DECLARATIONS` (1,024) emits a
+  warning without stopping extraction. `MAX_REEXPORT_HOPS` (4),
+  `MAX_DEPENDENCY_FILES` (512) and `MAX_TOTAL_DEPENDENCY_BYTES` (4 MiB)
+  are enforced.
+- **Zod analyzer gaps.** Multi-step transformation chains are not
+  recognized (only a single transformation applied to a base schema
+  identifier); `z.infer` resolves only against same-file const schemas
+  declared earlier; namespace-imported `createZodDto` is not recognized.
+- **Test coverage is not acceptance coverage.** Resolver unit tests exist;
+  comprehensive `.bru` integration tests, reverse-dependency watch tests,
+  staged index/worktree divergence tests, and property tests for the
+  resolver are still missing.

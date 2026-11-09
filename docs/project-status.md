@@ -51,8 +51,17 @@
   `docs` block. Metadata changes update requests in place (identity
   unchanged); backward compatible with earlier output.
 
-- **Phase 11 (cross-file class/interface + Zod DTO resolution):** in progress,
-  not a verified/shipped product capability. See
+- **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
+  v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
+  paths, `tsconfig` `baseUrl`/`paths` (single-wildcard), `index.ts`,
+  named/type-only/aliased imports, re-exports (four hops), exported
+  class/interface DTOs, and a conservative Zod subset (`z.object`,
+  `z.infer`, `createZodDto` with import provenance, statically provable
+  transformations). Bounded traversal (four hops, 512 dependency files,
+  4 MiB aggregate source) with explicit cycle detection; uncertain or
+  ambiguous results stay `BodyShape::Unknown`. Deliberately deferred:
+  symlink-safe containment, run-scoped resolver caching, watch-mode
+  dependency invalidation, staged dependency resolution. See
   [`phase-11-cross-file-dto-resolution.md`](phases/phase-11-cross-file-dto-resolution.md).
 
 ## Commands
@@ -63,7 +72,7 @@
 | `check` | Works: validates configuration and that the source directory exists. |
 | `discover` | Works: lists candidate controller files, one per line. Diagnostic/inspection command. |
 | `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format, not a stable machine interface). |
-| `generate [--force]` | Works: writes request files with parameter type metadata and DTO body skeletons; existing differing files are left alone unless `--force`; nothing is ever deleted. |
+| `generate [--force]` | Works: writes request files with parameter type metadata and cross-file DTO/Zod body skeletons; existing differing files are left alone unless `--force`; nothing is ever deleted. |
 | `sync [--dry-run]` | Works: creates, updates in place (including DTO/metadata changes), deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
 | `sync --staged [--dry-run]` | Works: the same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git. |
 | `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
@@ -93,14 +102,21 @@
   noisy sandbox runs); parsing and writes are
   proportional to the change.
 - `@All`, unresolved/array paths and paths with `?`, `#`, whitespace or `{{`
-  are not generated; body examples are skeletons, not full schemas. DTO field
-  extraction is currently limited to class/interface declarations in the
-  Controller file; imported class/interface and Zod DTO support is not yet
-  verified. No environment or `folder.bru` is created (`baseUrl` must be
+  are not generated; body examples are skeletons, not full schemas. DTO
+  resolution has boundaries (same-file DTOs must not use `export`; one
+  statically provable Zod transformation; `createZodDto` classes must live
+  in an imported module) — see the user-facing
+  [DTO Resolution guide](../../website/guide/dto-resolution.md). No
+  environment or `folder.bru` is created (`baseUrl` must be
   defined in a Bruno environment).
+- Cross-file resolution is disabled in `sync --staged` (same-file DTOs
+  only), and watch mode does not re-analyze controllers when only an
+  imported dependency file changes.
 - Output verified with Bruno's parser library, not by opening the desktop app.
-- Discovery measurement so far: ad-hoc runs on synthetic trees (100,000-file
-  discovery; 5,000-controller extraction, 5,000-file generation; 5,000-request sync; see the phase documents). No benchmark suite exists yet (planned with the hardening phase).
+- Benchmarks: Criterion suite in `benches/pipeline.rs` (five benchmarks,
+  including cross-file DTO resolution). Older ad-hoc measurements in the
+  phase documents (100,000-file discovery; 5,000-route generation and sync;
+  watch timings) are sandbox observations, not portable guarantees.
 - CI is configured for Linux, macOS and Windows but has only been exercised
   locally on Linux.
 

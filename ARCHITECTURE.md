@@ -3,9 +3,9 @@
 This is the agent-facing architecture summary. The full narrative lives in
 [docs/architecture.md](docs/architecture.md) (canonical) and the phase
 documents under [docs/phases/](docs/phases/). The shipped architecture is
-complete through Phase 9. A separate Phase 11 resolver attempt exists in the
-uncommitted working tree and is **not yet part of the verified architecture**;
-see the canonical handoff before modifying it.
+complete through Phase 9 plus Phase 11 (cross-file DTO resolution, shipped
+in v0.2.0). See the Phase 11 section below and the canonical handoff before
+modifying the resolver.
 
 ## What the tool is
 
@@ -98,8 +98,8 @@ coverage/.tmp/.cache). Details: `src/config.rs`, [docs/phases/phase-01.md](docs/
 - Runtime deps: clap, serde, toml, thiserror, tempfile, globset, oxc
   (allocator/ast/parser/span, one release train), notify, ctrlc.
   Dev: proptest. Rationale: `Cargo.toml` comments.
-- Historical Phase 9 baseline: 495 tests reported passing. This does not
-  verify the current uncommitted Phase 11 tree. Watch e2e tests are Unix-only.
+- Historical Phase 9 baseline: 495 tests. Phase 11 raised this to 535
+  passing (verified 2026-11-09). Watch e2e tests are Unix-only.
 - CI: fmt + clippy `-D warnings` + tests on linux/macos/windows
   (`.github/workflows/ci.yml`); exercised on Linux only so far.
 
@@ -112,27 +112,41 @@ KiB source cap, no field-level merge (any user edit locks the whole request),
 `sync` re-reads all `.bru` per run, linear watch reconciliation pass.
 
 
-## Phase 11 resolver attempt — not yet verified
+## Phase 11 cross-file DTO resolver — shipped (v0.2.0)
 
-The current uncommitted tree adds `src/resolve/` for on-demand local module
-resolution, class/interface DTO extraction, and static Zod schema extraction.
-It is intended to sit between Controller AST analysis and `BodyShape` creation;
-it must not change the Route IR / Bruno boundary. Do not treat its current
-behavior as complete. Important constraints and blockers:
+`src/resolve/` implements on-demand local module resolution, exported
+class/interface DTO extraction, and static Zod schema extraction. It sits
+between Controller AST analysis and `BodyShape` creation and does not
+change the Route IR / Bruno boundary:
 
-- Resolve only dependencies reachable from imports of discovered Controllers;
-  do not add a full TypeScript source scan.
-- Local relative imports and the approved limited `tsconfig` `baseUrl` / `paths`
-  subset only; no `node_modules` traversal.
-- Four re-export hops maximum, explicit cycle state, bounded graph budgets.
-- Exported class/interface DTOs plus a conservative Zod subset; unresolved or
-  uncertain results must stay `BodyShape::Unknown`.
-- Disk, Watch, and Staged paths must share resolver semantics; Staged must use
-  index blobs only. Current Watch and Staged paths do not yet meet this.
-- Current path containment, alias re-export mapping, exported-symbol checks,
-  run-scoped caching, and Zod uncertainty handling have known blockers.
+```text
+Controller AST analysis (unchanged discovery; Controller candidates only)
+    → same-file DTO extraction (existing, unchanged)
+    → for routes still Unknown with @Body params:
+        on-demand local dependency resolution (src/resolve/)
+        → exported class/interface or supported Zod schema properties
+        → BodyShape::Fields (≤ 64 properties) or stay Unknown
+    → existing Bruno generation and reconciliation
+```
 
-See [`docs/phases/phase-11-cross-file-dto-resolution.md`](docs/phases/phase-11-cross-file-dto-resolution.md)
-for file-level findings and the next agent's implementation order. The Rust
-quality gates have not been run on this uncommitted tree in the latest
-inspection environment.
+Guarantees (all pinned by tests):
+
+- Resolve only dependencies reachable from imports of discovered
+  Controllers; never a full TypeScript source scan; never `node_modules`.
+- Local relative imports and the limited `tsconfig` `baseUrl` / `paths`
+  subset (single-wildcard patterns); implicit `.ts` and `index.ts`.
+- Four re-export hops maximum; explicit `(module, symbol)` cycle state;
+  enforced budgets: 512 dependency files, 4 MiB aggregate source per run,
+  256 KiB per file (`MAX_IMPORT_EDGES` is declared but not enforced;
+  `MAX_DTO_DECLARATIONS` warns only — see KNOWN_ISSUES).
+- Exported declarations only, resolved through real exported bindings;
+  aliased re-exports map public names to source names.
+- Conservative Zod subset; `Uncertain` → `BodyShape::Unknown` (a partial
+  property list is never published as complete).
+
+Known deferred edges (accepted, tracked in KNOWN_ISSUES.md): lexical-only
+path containment (no canonical symlink validation), per-route resolver
+caching (shared dependencies re-read), Watch Mode does not invalidate on
+dependency-only changes, Staged Sync resolves same-file DTOs only. User-facing
+behavior is documented in `website/guide/dto-resolution.md`; the engineering
+record is `docs/phases/phase-11-cross-file-dto-resolution.md`.

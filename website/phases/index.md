@@ -17,11 +17,13 @@ verified. The full engineering record lives in the repository under
 | 8 | Production hardening | ✅ | Criterion benchmarks, lifecycle coverage, release checklist |
 | 9 | Route semantics & request metadata | ✅ | Parameter types and same-file class/interface DTO body skeletons |
 | 10 | OpenAPI interoperability | Planned | Export/validate from the existing route IR |
-| 11 | Cross-file DTO resolution (class + Zod) | In progress, unverified | Resolve imported DTO/schema definitions without executing application code |
+| 11 | Cross-file DTO resolution (class + Zod) | ✅ (v0.2.0) | Resolve imported DTO/schema definitions without executing application code |
 
-Phase 11 is under development and is not yet a released capability. Its
-approved architecture and current blockers are tracked in the repository's
-[Phase 11 status page](/phases/phase-11).
+Phase 11 shipped in v0.2.0 with a deliberately deferred tail (symlink-safe
+containment, run-scoped resolver caching, watch-mode dependency
+invalidation, staged dependency resolution); see the
+[Phase 11 page](/phases/phase-11) and the user-facing
+[DTO Resolution guide](/guide/dto-resolution).
 
 Pages: [Phase 1](/phases/phase-01) · [Phase 2](/phases/phase-02) ·
 [Phase 3](/phases/phase-03) · [Phase 4](/phases/phase-04) ·

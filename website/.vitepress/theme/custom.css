@@ -33,3 +33,33 @@
   color: var(--vp-c-brand-1);
   user-select: none;
 }
+
+/* Benchmark statistic cards for the landing page performance section. */
+.nb-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 16px 0 8px;
+}
+.nb-stat {
+  background: var(--vp-c-bg-elv);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 10px;
+  padding: 16px 18px;
+  text-align: center;
+}
+.nb-stat .nb-value {
+  font-size: 1.9em;
+  font-weight: 700;
+  color: var(--vp-c-brand-1);
+  font-variant-numeric: tabular-nums;
+}
+.nb-stat .nb-label {
+  margin-top: 4px;
+  font-size: 0.85em;
+  color: var(--vp-c-text-2);
+}
+.nb-note {
+  font-size: 0.85em;
+  color: var(--vp-c-text-3);
+}

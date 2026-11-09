@@ -5,6 +5,23 @@
 warnings`, `cargo test --all-features` — 535 tests). Watch Mode dependency
 invalidation and Staged Sync dependency resolution remain deferred; see
 [STATUS.md](../../STATUS.md) for the current deferred list.  
+
+> **Resolution addendum (2026-11-09).** Sections 3–8 below are the
+> pre-verification handoff record, preserved for history. Outcome:
+> implementation completed as commit `d7bc701` and shipped in v0.2.0
+> (`3c0dbf5`). All P0 blockers were fixed and pinned by tests (Uncertain →
+> `BodyShape::Unknown`; exported-binding-only resolution; aliased
+> re-export mapping; explicit `(module, symbol)` cycle state; the
+> bare-name `createZodDto` fallback removed). Resource budgets as shipped:
+> 4 re-export hops, 512 dependency files, 4 MiB aggregate dependency
+> bytes, 1,024 DTO declarations (warning), 256 KiB per file, 64
+> properties. Still open from §4: canonical symlink containment, single
+> parse per module, run-scoped resolver cache, Watch dependency
+> invalidation, Staged index dependency provider, `MAX_IMPORT_EDGES`
+> enforcement, multi-step Zod chains, and integration/property test
+> coverage. A Criterion benchmark for cross-file resolution was added
+> (`extract_cross_file/1_controller_1_shared_dto`, ~40 µs median on the
+> benchmark machine; see `website/guide/benchmarks.md`).
 **Scope authorization:** approved by the project owner on 2026-11-08 through the
 Phase 11 master prompt and the accompanying architecture/implementation
 authorization. Do not request approval again for decisions explicitly listed

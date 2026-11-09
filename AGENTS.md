@@ -13,9 +13,9 @@ repeating past mistakes or past investigation.
 4. `ROADMAP.md` — what comes next.
 5. `KNOWN_ISSUES.md` — verified problems and documentation drift.
 6. `DECISIONS.md` — decisions you must not silently reverse.
-7. The authoritative prompt for the phase you are implementing. For the
-   currently authorized Phase 11 work, the owner-approved decisions are
-   summarized in `docs/phases/phase-11-cross-file-dto-resolution.md`.
+7. The authoritative prompt for the phase you are implementing. For
+   completed Phase 11, the owner-approved decisions are summarized in
+   `docs/phases/phase-11-cross-file-dto-resolution.md`.
 8. The phase documents in `docs/phases/` for everything already built and the
    canonical handoff for the active phase.
 
@@ -89,6 +89,9 @@ source of truth. If you find they are wrong, fix the file, not just the code.
 - Reconciliation plans are pure; application re-verifies every hash and path
   before writing.
 - Phase 11 DTO dependency resolution is on-demand, local-only and bounded.
-  It must preserve `BodyShape::Unknown` for uncertain metadata; see the
-  canonical Phase 11 handoff for current unverified blockers. Phase 10 remains
+  It must preserve `BodyShape::Unknown` for uncertain metadata. It shipped
+  in v0.2.0; accepted deferred edges (lexical-only containment, per-route
+  resolver caching, watch dependency invalidation, staged dependency
+  resolution) are tracked in `KNOWN_ISSUES.md` and must not be silently
+  weakened or silently "fixed" into behavior changes. Phase 10 remains
   OpenAPI interoperability.

@@ -1,9 +1,7 @@
 # Architecture
 
-This document describes the last verified product architecture (Phases 1–9).
-The supplied working tree contains a partial, unverified Phase 11 resolver
-attempt; it is explicitly separated below so proposed/incomplete behavior is
-not mistaken for shipped functionality.
+This document describes the verified product architecture (Phases 1–9 plus
+Phase 11, shipped in v0.2.0).
 
 ## Module responsibilities
 
@@ -15,8 +13,8 @@ not mistaken for shipped functionality.
 | `config.rs` | `nestbruno.toml` model, parsing and validation. |
 | `project.rs` | Project root discovery and the loaded `Project` (root + config). |
 | `discovery.rs` | Finds controller *candidate* files from configuration and paths. Reads no file contents, knows nothing about Bruno, Git or the CLI. |
-| `route.rs` | The route IR (`Controller`, `Route`, `HttpMethod`, ...) and `compose_path`. Independent of Bruno and of the parser. |
-| `nest/extract.rs` | Pure function `extract_controllers(file, source)`: oxc AST in, IR + diagnostics out. The only place that parses TypeScript. |
+| `route.rs` | The route IR (`Controller`, `Route`, `HttpMethod`, `BodyShape`, ...) and `compose_path`. Independent of Bruno and of the parser. |
+| `nest/extract.rs` | oxc AST in, IR + diagnostics out. The only place that parses TypeScript for routes; wires cross-file DTO resolution for `Unknown` bodies. |
 | `nest/mod.rs` | `analyze_files`: bounded file reads, big-stack worker thread, per-file panic guard, aggregation. |
 | `bruno/mod.rs` | `generate(config, controllers)`: pure planner from route IR to desired files (`GeneratedRequest`). No filesystem, no parsing. |
 | `bruno/model.rs` | Bruno request model and IR-to-model mapping; validates all untrusted text. |
@@ -166,33 +164,41 @@ change the command is a clean no-op. Rules, security and limits:
 None. See [roadmap.md](roadmap.md) for what comes after Phase 7.
 
 
-## Phase 11 resolver attempt (partial; not shipped)
+## Phase 11 cross-file DTO resolver (shipped in v0.2.0)
 
-A partial `src/resolve/` implementation is present in the current working
-tree. The intended shape is:
+`src/resolve/` resolves `@Body` DTO declarations across local imports and
+maps the top-level property names onto the existing
+`BodyShape::{None, Unknown, Fields}` contract:
 
 ```text
 Controller discovery (unchanged; Controller candidates only)
-    → Controller AST/import metadata
-    → on-demand local dependency resolution
-    → exported class/interface or supported Zod schema properties
-    → existing BodyShape::{None, Unknown, Fields}
+    → Controller AST + same-file DTO extraction (existing)
+    → for routes still Unknown with @Body params:
+        on-demand local dependency resolution
+        → exported class/interface or supported Zod schema properties
+        → BodyShape::Fields (≤ 64 properties) or stay Unknown
     → existing Bruno generation and reconciliation
 ```
 
-The resolver must not broaden discovery to every `.ts` file. It may read a
-local dependency only after following a supported import reachable from a
-Controller body type. The approved subset includes relative imports, simple
-`tsconfig` `baseUrl` / `paths` mappings, `.ts` extension variants,
-`index.ts`, named/type-only/aliased imports, named re-exports, exported
-class/interface DTOs, and a conservative set of Zod schema patterns. It does
-not include `node_modules` or general TypeScript compiler compatibility.
+The resolver never broadens discovery to every `.ts` file. It reads a local
+dependency only after following a supported import reachable from a
+Controller body type. The supported subset: relative imports, simple
+`tsconfig` `baseUrl` / `paths` mappings (single `*` per pattern), `.ts`
+extension variants, `index.ts`, named/type-only/aliased imports, named and
+star re-exports (four hops maximum), exported class/interface DTOs, and a
+conservative set of Zod schema patterns (`z.object`, `z.infer`,
+`createZodDto` with provenance, statically provable transformations). It
+does not include `node_modules` or general TypeScript compiler
+compatibility.
 
-This is an intended architecture, not a claim that all behavior is implemented.
-The inspected code still needs canonical symlink containment, correct
-export-alias mapping and visibility checks, a single parse per module,
-run-scoped compact metadata caching, explicit cycle tracking, enforced graph
-budgets, and conservative Zod fallback. Watch Mode dependency invalidation and
-Git-index-only staged dependency resolution are also outstanding. Full details
-and verified source locations are in
+Verified guarantees: explicit `(module, symbol)` cycle detection; enforced
+budgets (512 dependency files, 4 MiB aggregate source, 256 KiB per file,
+four re-export hops, 64 properties); exported-binding-only resolution;
+`Uncertain` → `BodyShape::Unknown`.
+
+Known deferred edges (tracked in `KNOWN_ISSUES.md`): lexical-only path
+containment (no canonical symlink validation), per-route resolver caching,
+single-parse module analysis, Watch Mode dependency invalidation, and
+Git-index-only staged dependency resolution (staged analysis intentionally
+resolves same-file DTOs only). Full details are in
 [Phase 11](phases/phase-11-cross-file-dto-resolution.md).

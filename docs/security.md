@@ -91,29 +91,41 @@ exists). Run `cargo audit` locally if you have it installed; it is not yet part
 of CI.
 
 
-## Phase 11 imported-source analysis — security gate (not yet satisfied)
+## Phase 11 imported-source analysis — shipped subset and open gap
 
-The partial resolver introduces reads of TypeScript files selected by import
-specifiers. Those specifiers are untrusted source input. Before enabling this
-path as a supported feature, it must:
+The shipped resolver (v0.2.0) reads TypeScript files selected by import
+specifiers — untrusted source input. Satisfied by the shipped
+implementation:
 
-- reject absolute paths, drive/UNC paths, lexical traversal, and any canonical
-  target outside the canonical project root;
-- reject symlinks (including symlinked intermediate directories), loops,
-  directories, special files, and non-regular targets; do not rely on
-  `Path::exists()` for authorization;
-- apply the existing source exclusion policy to imported files without
-  changing Controller discovery semantics;
-- never traverse `node_modules`, install packages, or access the network;
-- bound file count, dependency edges, aggregate bytes, DTO declarations,
-  per-file bytes, and re-export hops, enforcing—not merely declaring—each cap;
-- parse source using Oxc only; never execute TypeScript or resolve modules by
-  invoking Node or `tsc`;
-- isolate an unreadable or malformed dependency as an unknown body shape,
-  without converting a metadata-only failure into proof that a route vanished.
+- lexical traversal (`..` escaping the project) is rejected; dependency
+  resolution never escapes the project root lexically;
+- the existing source exclusion policy applies to imported files
+  (`node_modules` and `.git` components are hard-skipped; configured
+  exclude patterns apply); Controller discovery semantics unchanged;
+- `node_modules` is never traversed, no packages are installed, and there
+  is no network access;
+- bounded work is enforced: four re-export hops, 512 dependency files,
+  4 MiB aggregate dependency bytes, 256 KiB per file, 64 properties per
+  DTO (`MAX_IMPORT_EDGES` is declared but not enforced;
+  `MAX_DTO_DECLARATIONS` warns only);
+- source is parsed with Oxc only; TypeScript is never executed and modules
+  are never resolved by invoking Node or `tsc`;
+- an unreadable or malformed dependency degrades to an unknown body shape,
+  never to a route deletion or an invented body.
 
-For Watch Mode, dependency events must invalidate dependants or trigger a safe
-full resync. For `sync --staged`, dependency contents must come only from the
-captured Git index; working-tree fallback is forbidden. The current partial
-resolver does not yet satisfy these requirements. See
+**Open gap (tracked in `KNOWN_ISSUES.md`):** module containment is
+lexical only. The resolver does not canonicalize paths, reject symlinks,
+or validate regular-file targets — a symlink inside the source tree could
+point the resolver at a file outside the project. Nothing is executed
+regardless of what is read. Before this gap is closed, the resolver must:
+reject symlinked targets and intermediate directories, loops, directories,
+special files, and non-regular targets; and not rely on `Path::exists()`
+for authorization.
+
+For Watch Mode, dependency events must invalidate dependants or trigger a
+safe full resync (not yet wired: dependency-only changes are currently
+ignored). For `sync --staged`, dependency contents must come only from the
+captured Git index; working-tree fallback is forbidden — until an
+index-only source provider exists, staged analysis intentionally resolves
+same-file DTOs only. See
 [Phase 11 security and handoff notes](phases/phase-11-cross-file-dto-resolution.md).
