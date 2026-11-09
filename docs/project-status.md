@@ -57,8 +57,10 @@
   `tsconfig` `baseUrl`/`paths` (single-wildcard), `index.ts`,
   named/type-only/aliased imports, re-exports (four hops), exported
   class/interface DTOs, and a conservative Zod subset (`z.object`,
-  `z.infer`, `createZodDto` with import provenance, statically provable
-  transformations). Bounded traversal (four hops, 512 dependency files,
+  provenance-checked `z.infer` (same-file or cross-file), `createZodDto`
+  with import provenance (including namespace imports), statically provable
+  multi-step transformation chains, and `package.json` `imports` local
+  subpaths). Bounded traversal (four hops, 512 dependency files,
   4 MiB aggregate source) with explicit cycle detection; uncertain or
   ambiguous results stay `BodyShape::Unknown`. Deliberately deferred:
   symlink-safe containment, run-scoped resolver caching, watch-mode

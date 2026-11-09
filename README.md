@@ -43,11 +43,16 @@ discovery -> oxc parser -> route IR -> Bruno model -> serializer -> writer
 - Cross-file DTO resolution: follows local imports to exported classes,
   interfaces, type aliases, and Zod schemas, and generates a JSON body
   skeleton (`null` for every value, at most 64 fields per DTO).
-- Zod support: `z.object(...)`, `z.infer<typeof Schema>` type aliases, and
-  `class X extends createZodDto(Schema)` (a real `nestjs-zod` import is
-  required), plus a conservative subset of chained transformations
-  (`extend`, `pick`, `omit`, `partial`, `required`, `strict`,
-  `passthrough`, `strip`).
+- Zod support: `z.object(...)`, provenance-checked `z.infer<typeof Schema>`
+  type aliases (same file or cross-file, any declaration order), and
+  `class X extends createZodDto(Schema)` (named, aliased, or
+  namespace-imported from a real `nestjs-zod` import), plus statically
+  provable multi-step transformation chains (`extend`, `pick`, `omit`,
+  `partial`, `required`, `strict`, `passthrough`, `strip`); anything
+  unprovable stays unknown.
+- `package.json` `imports` subpaths: local `#src/...` specifiers resolve
+  through exact and single-wildcard mappings; external targets are never
+  resolved.
 - Safe synchronization: ownership stamps, content-hash verification,
   conflict reporting, atomic writes. Hand-edited requests are never
   overwritten or deleted.

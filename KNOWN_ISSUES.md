@@ -141,17 +141,19 @@ Still open (deferred; the accepted limitations of the shipped feature):
   gate also fires for staged `.ts` dependency files and `tsconfig.json`;
   symlink/non-regular entries are rejected; index/worktree divergence,
   deletions, re-export changes and shared dependencies are pinned by tests.
-- **Zod analyzer gaps.** Multi-step transformation chains are not
-  recognized (only a single transformation applied to a base schema
-  identifier); `z.infer` resolves only against same-file const schemas
-  declared earlier; namespace-imported `createZodDto` is not recognized.
-  A field whose schema is unresolved does not block object-property-name
-  extraction (`z.object` records names regardless of field values).
-- **package.json `imports` subpaths not resolved.** Specifiers like
-  `#src/shared/x.js` (the Node `imports` field) fall through module
-  resolution to the node_modules deferral and resolve to nothing. Harmless
-  when they import pipes/services; a DTO imported through a `#` subpath
-  would stay `BodyShape::Unknown`.
+- ~~Zod analyzer gaps~~ — resolved 2026-11-10 (Milestone 11.1.5):
+  multi-step chains whose base is an inline `z.object(...)` or a schema
+  constant are applied in source order; `z.infer` is provenance-checked
+  against real `zod` imports and resolves forward references and imported/
+  re-exported schemas (via import references); namespace-imported
+  `createZodDto` (`nz.createZodDto`) is recognized. A field whose schema
+  is unresolved does not block object-property-name extraction.
+- ~~package.json `imports` subpaths not resolved~~ — resolved 2026-11-10
+  (Milestone 11.1.5): `resolve/packages.rs` supports the conservative
+  static subset (top-level `#` keys, exact and single-wildcard local
+  string/array targets, first entry used); external and unsafe targets are
+  never resolved; mappings are read through the source provider, so staged
+  analysis sees the staged `package.json`.
 - **Test coverage is not acceptance coverage.** Resolver unit tests exist;
   comprehensive `.bru` integration tests, reverse-dependency watch tests,
   staged index/worktree divergence tests, and property tests for the

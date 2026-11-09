@@ -80,9 +80,11 @@ milestone (owner-authorized master prompt, 2026-11-10):
 4. 11.1.4 Git-index-only source provider; cross-file resolution for
    `sync --staged` (index/worktree divergence must resolve to the index
    version).
-5. 11.1.5 Complete the Zod analyzer subset (multi-step chains, `z.infer`
-   through imports, namespace-imported `createZodDto`, `package.json`
-   `imports` local subpaths).
+5. 11.1.5 Complete the Zod analyzer subset — completed 2026-11-10:
+   multi-step chains (inline `z.object` or constant base), provenance-
+   checked `z.infer` (forward references, cross-file imports),
+   namespace-imported `createZodDto`, `package.json` `imports` local
+   subpaths (`resolve/packages.rs`).
 6. 11.1.6 Resolver acceptance (integration + property) tests and
    documentation synchronization.
 

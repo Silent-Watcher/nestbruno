@@ -188,10 +188,12 @@ extension variants plus NodeNext emitted extensions (`.js`/`.mjs`/`.cjs`
 specifiers map to `.ts`/`.mts`/`.cts` sources), `index.ts`,
 named/type-only/aliased imports, named and
 star re-exports (four hops maximum), exported class/interface DTOs, and a
-conservative set of Zod schema patterns (`z.object`, `z.infer`,
-`createZodDto` with provenance, statically provable transformations). It
-does not include `node_modules` or general TypeScript compiler
-compatibility.
+conservative Zod schema patterns (`z.object`, provenance-checked `z.infer`
+including cross-file schemas and forward references, `createZodDto` with
+provenance including namespace imports, statically provable multi-step
+transformation chains), and Node `package.json` `imports` local subpaths
+(exact and single-wildcard). It does not include `node_modules` or general
+TypeScript compiler compatibility.
 
 Verified guarantees: explicit `(module, symbol)` cycle detection; enforced
 budgets (512 dependency files, 4,096 import edges, 4 MiB aggregate source,

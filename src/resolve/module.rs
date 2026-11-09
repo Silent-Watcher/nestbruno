@@ -13,42 +13,42 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::config::Config;
 use crate::discovery::Matcher;
+use crate::resolve::packages::PackageImports;
 use crate::resolve::provider::SourceProvider;
 use crate::resolve::tsconfig::TsConfig;
+
+/// Everything a specifier resolution may consult — constant for a whole
+/// analysis run.
+pub struct ModuleEnv<'a> {
+    /// Source directory prefix (e.g., "src").
+    pub source_prefix: &'a Path,
+    /// Configuration.
+    pub config: &'a Config,
+    /// Discovery matcher for exclusion checks.
+    pub matcher: &'a Matcher,
+    /// Parsed tsconfig (if any).
+    pub tsconfig: Option<&'a TsConfig>,
+    /// Where dependency content comes from.
+    pub provider: &'a dyn SourceProvider,
+    /// `package.json` `imports` subpath mappings (if any).
+    pub package_imports: Option<&'a PackageImports>,
+}
 
 /// Resolves a module specifier to a project-relative path.
 pub fn resolve_module(
     specifier: &str,
     from_file: &Path,
-    source_prefix: &Path,
-    config: &Config,
-    matcher: &Matcher,
-    tsconfig: Option<&TsConfig>,
-    provider: &dyn SourceProvider,
+    env: &ModuleEnv<'_>,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     let from_dir = from_file.parent().unwrap_or(Path::new(""));
 
     if specifier.starts_with("./") || specifier.starts_with("../") {
         // Relative import: resolve relative to the importing file's directory
-        resolve_relative(
-            specifier,
-            from_dir,
-            source_prefix,
-            config,
-            matcher,
-            provider,
-        )
+        resolve_relative(specifier, from_dir, env)
     } else {
-        // Bare specifier: try tsconfig paths, then baseUrl, then node_modules (deferred)
-        resolve_bare(
-            specifier,
-            from_dir,
-            source_prefix,
-            config,
-            matcher,
-            tsconfig,
-            provider,
-        )
+        // Bare specifier: try tsconfig paths, then baseUrl, then `imports`
+        // subpaths, then node_modules (deferred)
+        resolve_bare(specifier, env)
     }
 }
 
@@ -56,10 +56,7 @@ pub fn resolve_module(
 fn resolve_relative(
     specifier: &str,
     from_dir: &Path,
-    source_prefix: &Path,
-    _config: &Config,
-    matcher: &Matcher,
-    provider: &dyn SourceProvider,
+    env: &ModuleEnv<'_>,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     // Build the candidate path relative to project root.
     // from_dir is project-relative and already includes source_prefix
@@ -83,47 +80,55 @@ fn resolve_relative(
     if !is_within_project(&candidate) {
         return Err(ModuleResolveError::EscapesProject);
     }
-    if is_excluded(&candidate, source_prefix, matcher) {
+    if is_excluded(&candidate, env.source_prefix, env.matcher) {
         return Ok(None);
     }
 
     // Try file candidates: .ts, /index.ts
-    try_file_candidates(&candidate, provider)
+    try_file_candidates(&candidate, env.provider)
 }
 
 /// Resolve a bare specifier (not starting with ./ or ../).
 fn resolve_bare(
     specifier: &str,
-    _from_dir: &Path,
-    source_prefix: &Path,
-    _config: &Config,
-    matcher: &Matcher,
-    tsconfig: Option<&TsConfig>,
-    provider: &dyn SourceProvider,
+    env: &ModuleEnv<'_>,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     // Try tsconfig paths first
-    if let Some(tsconfig) = tsconfig
+    if let Some(tsconfig) = env.tsconfig
         // The tsconfig's paths are relative to baseUrl (if set) or tsconfig dir.
         // We assume tsconfig at project root and paths are project-relative.
         && let Some(resolved) = tsconfig.resolve_bare_specifier(specifier, Path::new(""))
         && is_within_project(&resolved)
-        && !is_excluded(&resolved, source_prefix, matcher)
-        && let Some(found) = try_file_candidates(&resolved, provider)?
+        && !is_excluded(&resolved, env.source_prefix, env.matcher)
+        && let Some(found) = try_file_candidates(&resolved, env.provider)?
     {
         return Ok(Some(found));
     }
 
     // Try baseUrl directly
-    if let Some(tsconfig) = tsconfig
+    if let Some(tsconfig) = env.tsconfig
         && let Some(base_url) = &tsconfig.base_url
     {
         let candidate = Path::new(base_url).join(specifier);
         if is_within_project(&candidate)
-            && !is_excluded(&candidate, source_prefix, matcher)
-            && let Some(found) = try_file_candidates(&candidate, provider)?
+            && !is_excluded(&candidate, env.source_prefix, env.matcher)
+            && let Some(found) = try_file_candidates(&candidate, env.provider)?
         {
             return Ok(Some(found));
         }
+    }
+
+    // Node.js `imports` subpaths (`#src/...`): the conservative static
+    // subset of package.json `imports` — exact and single-wildcard local
+    // targets only; anything else falls through to the node_modules deferral.
+    if specifier.starts_with('#')
+        && let Some(imports) = env.package_imports
+        && let Some(mapped) = imports.resolve(specifier)
+        && is_within_project(&mapped)
+        && !is_excluded(&mapped, env.source_prefix, env.matcher)
+        && let Some(found) = try_file_candidates(&mapped, env.provider)?
+    {
+        return Ok(Some(found));
     }
 
     // node_modules resolution is deferred (returns None)
@@ -305,16 +310,15 @@ mod tests {
         .unwrap();
 
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "./dto/create-user.dto",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("./dto/create-user.dto", from, &env).unwrap();
         assert_eq!(
             resolved,
             Some(PathBuf::from("src/users/dto/create-user.dto.ts"))
@@ -333,16 +337,15 @@ mod tests {
         .unwrap();
 
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "./dto",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("./dto", from, &env).unwrap();
         assert_eq!(resolved, Some(PathBuf::from("src/users/dto/index.ts")));
     }
 
@@ -364,16 +367,15 @@ mod tests {
         .unwrap();
 
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "../shared/dto/pagination.dto",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("../shared/dto/pagination.dto", from, &env).unwrap();
         assert_eq!(
             resolved,
             Some(PathBuf::from("src/shared/dto/pagination.dto.ts"))
@@ -391,16 +393,15 @@ mod tests {
         .unwrap();
 
         let from = Path::new("src/auth/auth.controller.ts");
-        let resolved = resolve_module(
-            "@users/dto/create-user.dto",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("@users/dto/create-user.dto", from, &env).unwrap();
         assert_eq!(
             resolved,
             Some(PathBuf::from("src/users/dto/create-user.dto.ts"))
@@ -411,15 +412,15 @@ mod tests {
     fn rejects_escaping_paths() {
         let (_dir, root, config, matcher, tsconfig) = setup_test_tree();
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "../../../etc/passwd",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        );
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("../../../etc/passwd", from, &env);
         assert!(matches!(resolved, Err(ModuleResolveError::EscapesProject)));
     }
 
@@ -430,16 +431,15 @@ mod tests {
         fs::write(root.join("src/dist/users/user.dto.ts"), "export class U {}").unwrap();
 
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "../dist/users/user.dto",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("../dist/users/user.dto", from, &env).unwrap();
         // Should be None because dist is excluded
         assert_eq!(resolved, None);
     }
@@ -455,16 +455,15 @@ mod tests {
         .unwrap();
 
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "./dto/create-user.dto.js",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("./dto/create-user.dto.js", from, &env).unwrap();
         assert_eq!(
             resolved,
             Some(PathBuf::from("src/users/dto/create-user.dto.ts"))
@@ -478,16 +477,15 @@ mod tests {
         fs::write(root.join("src/users/dto/index.ts"), "export class C {}").unwrap();
 
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "./dto/index.js",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("./dto/index.js", from, &env).unwrap();
         assert_eq!(resolved, Some(PathBuf::from("src/users/dto/index.ts")));
     }
 
@@ -503,16 +501,15 @@ mod tests {
             ("./legacy.mjs", "src/users/legacy.mts"),
             ("./commonjs.cjs", "src/users/commonjs.cts"),
         ] {
-            let resolved = resolve_module(
-                specifier,
-                from,
-                Path::new("src"),
-                &config,
-                &matcher,
-                Some(&tsconfig),
-                &disk_provider(&root),
-            )
-            .unwrap();
+            let env = ModuleEnv {
+                source_prefix: Path::new("src"),
+                config: &config,
+                matcher: &matcher,
+                tsconfig: Some(&tsconfig),
+                provider: &disk_provider(&root),
+                package_imports: None,
+            };
+            let resolved = resolve_module(specifier, from, &env).unwrap();
             assert_eq!(resolved, Some(PathBuf::from(expected)));
         }
     }
@@ -521,16 +518,15 @@ mod tests {
     fn js_extension_without_ts_source_is_none() {
         let (_dir, root, config, matcher, tsconfig) = setup_test_tree();
         let from = Path::new("src/users/users.controller.ts");
-        let resolved = resolve_module(
-            "./missing.dto.js",
-            from,
-            Path::new("src"),
-            &config,
-            &matcher,
-            Some(&tsconfig),
-            &disk_provider(&root),
-        )
-        .unwrap();
+        let env = ModuleEnv {
+            source_prefix: Path::new("src"),
+            config: &config,
+            matcher: &matcher,
+            tsconfig: Some(&tsconfig),
+            provider: &disk_provider(&root),
+            package_imports: None,
+        };
+        let resolved = resolve_module("./missing.dto.js", from, &env).unwrap();
         assert_eq!(resolved, None);
     }
 }

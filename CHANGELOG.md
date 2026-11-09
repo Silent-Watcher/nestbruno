@@ -8,6 +8,21 @@ All notable changes to NestBruno are documented here. The format follows
 
 ### Added
 
+- The Zod analysis subset is complete (Phase 11.1, Milestone 11.1.5):
+  **multi-step transformation chains** applied in source order when the
+  base is an inline `z.object({ ... })` or a schema constant (`extend`,
+  `pick`, `omit`, `partial`, `required`, `strict`, `passthrough`,
+  `strip`; anything unprovable stays unknown); **`z.infer<typeof S>`**
+  with provenance checking (the `z` qualifier must come from a real `zod`
+  import), forward references (the schema may be declared later in the
+  file), and cross-file resolution of imported/re-exported schemas;
+  **namespace-imported `createZodDto`** (`nz.createZodDto`) alongside
+  named/aliased forms; and **`package.json` `imports` subpaths** — local
+  `#src/...` specifiers resolve through exact and single-wildcard
+  mappings, read through the active source provider (working tree or Git
+  index snapshot), so staged analysis uses the staged `package.json`.
+  External targets are never resolved; `node_modules` is never traversed.
+
 - `sync --staged` now resolves cross-file DTOs against the Git index
   (Phase 11.1, Milestone 11.1.4): a source-provider boundary
   (`resolve::provider::SourceProvider`) separates the resolver from the

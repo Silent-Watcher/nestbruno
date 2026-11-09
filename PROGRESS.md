@@ -366,6 +366,41 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
   tsconfig counts). Gates: fmt + clippy `-D warnings` clean; 586 tests
   pass (was 573).
 
+#### Milestone 11.1.5 — Zod and module resolution completion (completed 2026-11-10)
+
+- **Multi-step chains** (`src/resolve/zod.rs`): chains are collected to
+  their innermost call and applied outward with per-call method extraction
+  (the old code required every callee object to be an identifier, which
+  silently marked any multi-call chain uncertain). Two supported bases: an
+  inline `z.object({ ... })` (provides the base, the rest applies) and a
+  known schema constant (every call applies). Chains starting at anything
+  else (`z.string()...`) stay unresolved; unknown methods and non-literal
+  pick/omit values stay uncertain. The master prompt's
+  `z.object(...).pick(...).partial().required({...})` example is covered.
+- **`z.infer` completion**: provenance-checked (the qualifier must be a
+  real `zod` import — `Foo.infer` and bare `infer` are rejected);
+  two-pass analysis lets the alias reference a schema declared later in
+  the file; an imported/re-exported schema yields an import reference the
+  resolver follows cross-file (same mechanism as `createZodDto`).
+- **Namespace `createZodDto`**: `nz.createZodDto(...)` superclasses are
+  recognized alongside named/aliased forms; unrelated namespaces are not.
+- **`package.json` `imports`** (`src/resolve/packages.rs`, new): top-level
+  `#` keys, exact and single-`*` wildcard patterns, local `./` string or
+  array targets (first entry). Read through the source provider inside
+  `ResolverContext::with_parts`, so disk and staged analysis both see
+  their own package.json (the staged snapshot now captures it). External,
+  `..`, and nested-condition targets are never resolved. Candidate
+  selection then applies the full existing ladder (NodeNext `.js` mapping,
+  `index.ts`, exclusions, containment).
+- **`ModuleEnv`** (`resolve/module.rs`): the eight resolution inputs are
+  bundled into one run-constant struct (clippy's argument-count lint led
+  to a genuinely better shape).
+- Tests: +12 (2 multi-step chains, forward `z.infer`, provenance
+  rejections, namespace `createZodDto` + negative, 3 `PackageImports`
+  unit tests, disk `#src` resolution with `.js` + external negative,
+  staged `#src` resolution). Gates: fmt + clippy `-D warnings` clean;
+  598 tests pass (was 586).
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

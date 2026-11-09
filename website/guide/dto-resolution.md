@@ -159,23 +159,32 @@ Supported:
   literals); computed keys are skipped;
 - namespace (`import * as z`), named (`import { object }`) and aliased
   imports of `zod`;
-- `z.infer<typeof Schema>` type aliases;
+- `z.infer<typeof Schema>` type aliases — the `z` qualifier is verified to
+  come from a real `zod` import; the schema may be declared **later in the
+  same file**, or **imported/re-exported from another module**;
 - `createZodDto(...)` classes **defined in an imported module**, where the
   argument is an inline `z.object(...)`, a schema constant in the same
-  file, or a schema imported into that file;
-- single transformations applied to a schema constant:
-  `extend`, `pick`, `omit`, `partial`, `required`, `strict`,
-  `passthrough`, `strip` — only when the resulting property set can be
-  established statically (e.g. `pick`/`omit` require literal `true` values).
+  file, or a schema imported into that file; the import may be named,
+  aliased, or a namespace (`nz.createZodDto`);
+- **multi-step transformation chains** whose base is an inline
+  `z.object({ ... })` or a schema constant — `extend`, `pick`, `omit`,
+  `partial`, `required`, `strict`, `passthrough`, `strip` applied in
+  source order, only when the resulting property set can be established
+  statically (e.g. `pick`/`omit` require literal `true` values);
+- `package.json` `imports` subpaths: local `#src/...` specifiers resolve
+  through exact and single-`*` wildcard mappings, read through the same
+  source provider as every dependency (staged analysis sees the staged
+  `package.json`). External targets are never resolved.
 
 ::: warning Zod boundaries
 `createZodDto` requires a real `nestjs-zod` import — a bare call is not
 recognized. DTO classes extending `createZodDto` **in the controller's own
 file** are not resolved (same-file extraction collects property
-declarations, not `extends` clauses). Multi-step chains such as
-`z.object({}).extend({}).pick({})` are not recognized. Anything uncertain
-— an unknown method, a non-literal `pick` value, an unresolvable schema —
-stays `Unknown`. This is deliberately not comprehensive Zod compatibility.
+declarations, not `extends` clauses). Chains starting at something other
+than `z.object` or a schema constant (e.g. `z.string().transform(...)`),
+an unknown method, a non-literal `pick` value, an unresolvable schema —
+anything uncertain stays `Unknown`. This is deliberately not comprehensive
+Zod compatibility.
 :::
 
 ## Where resolution runs

@@ -9,6 +9,7 @@ pub mod containment;
 pub mod imports;
 pub mod limits;
 pub mod module;
+pub mod packages;
 pub mod provider;
 pub mod tsconfig;
 pub mod zod;
@@ -23,6 +24,7 @@ use crate::resolve::containment::DependencyPathError;
 use crate::resolve::imports::{ModuleImportsExports, extract_imports_exports};
 use crate::resolve::limits::*;
 use crate::resolve::module::{ModuleResolveError, resolve_module};
+use crate::resolve::packages::PackageImports;
 use crate::resolve::provider::{DiskProvider, SourceProvider};
 use crate::resolve::tsconfig::TsConfig;
 use crate::resolve::zod::analyze_zod_program;
@@ -57,6 +59,9 @@ pub struct ResolverContext {
     provider: Box<dyn SourceProvider>,
     /// Parsed tsconfig (if any).
     tsconfig: Option<TsConfig>,
+    /// `package.json` `imports` subpath mappings (if any), read through the
+    /// provider so staged analysis sees the staged package.json.
+    package_imports: Option<PackageImports>,
     /// Cache of analyzed modules keyed by normalized project-relative path
     /// (the exact paths `module::resolve_module` produces: explicit `.ts`
     /// files or an `index.ts`, never directories or bare specifiers).
@@ -113,9 +118,16 @@ impl ResolverContext {
         tsconfig: Option<TsConfig>,
         initial_diagnostics: Vec<Diagnostic>,
     ) -> Self {
+        // `imports` subpath mappings come through the same boundary as every
+        // other dependency read: staged analysis sees the staged package.json.
+        let package_imports = provider
+            .read(Path::new("package.json"))
+            .ok()
+            .and_then(|text| PackageImports::parse(&text));
         Self {
             provider,
             tsconfig,
+            package_imports,
             module_cache: HashMap::new(),
             dependency_edges: HashMap::new(),
             edge_uncertain: BTreeSet::new(),
@@ -267,15 +279,15 @@ impl<'ctx> DtoResolver<'ctx> {
             );
             return None;
         }
-        let resolved = match resolve_module(
-            specifier,
-            from_file,
-            self.source_prefix,
-            self.config,
-            self.matcher,
-            self.ctx.tsconfig.as_ref(),
-            self.ctx.provider.as_ref(),
-        ) {
+        let env = module::ModuleEnv {
+            source_prefix: self.source_prefix,
+            config: self.config,
+            matcher: self.matcher,
+            tsconfig: self.ctx.tsconfig.as_ref(),
+            provider: self.ctx.provider.as_ref(),
+            package_imports: self.ctx.package_imports.as_ref(),
+        };
+        let resolved = match resolve_module(specifier, from_file, &env) {
             Ok(Some(path)) => Some(path),
             Ok(None) => None,
             Err(ModuleResolveError::EscapesProject) => {
@@ -1460,6 +1472,70 @@ export class UsersController {
                 .iter()
                 .any(|d| d.message.contains("import edge limit"))
         );
+    }
+
+    #[test]
+    fn resolves_package_imports_subpaths() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/shared")).unwrap();
+        fs::create_dir_all(root.join("src/users")).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r##"{ "imports": { "#src/*": "./src/*" } }"##,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/shared/pager.dto.ts"),
+            "export class Pager { page: string; }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { Pager } from '#src/shared/pager.dto.js';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: Pager) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("Pager", Path::new("src/users/users.controller.ts"));
+        assert_eq!(
+            resolution,
+            DtoResolution::Fields(vec!["page".into()]),
+            "the #src subpath maps through package.json imports and the NodeNext .js extension"
+        );
+    }
+
+    #[test]
+    fn an_external_package_imports_target_is_not_resolved() {
+        let (_dir, root, config, matcher) = setup_project();
+        fs::create_dir_all(root.join("src/users")).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r##"{ "imports": { "#lib/*": "some-package/*" } }"##,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/users/users.controller.ts"),
+            r#"
+import { Thing } from '#lib/thing';
+@Controller('users')
+export class UsersController {
+  @Post() create(@Body() dto: Thing) {}
+}
+"#,
+        )
+        .unwrap();
+
+        let mut ctx = ResolverContext::new(&root);
+        let mut resolver = DtoResolver::new(&mut ctx, Path::new("src"), &config, &matcher);
+        let resolution = resolver.resolve_type("Thing", Path::new("src/users/users.controller.ts"));
+        assert_eq!(resolution, DtoResolution::Unknown);
     }
 
     #[test]

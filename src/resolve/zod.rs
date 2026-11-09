@@ -97,9 +97,15 @@ impl<'ast> ZodAnalyzer<'ast> {
             }
         }
 
-        // Second pass: analyze declarations
-        for stmt in &program.body {
-            self.analyze_statement(stmt);
+        // Two declaration passes: the second one sees every const binding of
+        // the file, so a `z.infer` alias may reference a schema declared
+        // LATER in the file (forward reference). Both passes are pure
+        // recomputation over the same statements; the result is deterministic
+        // by construction.
+        for _ in 0..2 {
+            for stmt in &program.body {
+                self.analyze_statement(stmt);
+            }
         }
     }
 
@@ -234,29 +240,51 @@ impl<'ast> ZodAnalyzer<'ast> {
 
     fn analyze_type_alias(&self, type_ann: &TSType<'ast>) -> Option<ZodSchema> {
         let ts_type = type_ann;
-        // Look for `z.infer<typeof SchemaName>` or `infer<typeof SchemaName>`
+        // Look for `z.infer<typeof SchemaName>` — provenance checked: the
+        // qualifier must be a binding imported from `zod`, so an unrelated
+        // `Foo.infer<typeof X>` (or a bare `infer<...>`) is never mistaken
+        // for Zod.
         if let TSType::TSTypeReference(type_ref) = ts_type {
-            let type_name = match &type_ref.type_name {
-                TSTypeName::IdentifierReference(ident) => ident.name.as_str(),
-                TSTypeName::QualifiedName(qn) => qn.right.name.as_str(),
+            let (qualifier, member) = match &type_ref.type_name {
+                TSTypeName::QualifiedName(qn) => match &qn.left {
+                    TSTypeName::IdentifierReference(left) => {
+                        (left.name.as_str(), qn.right.name.as_str())
+                    }
+                    _ => return None,
+                },
+                // A bare `infer<...>` is not Zod.
                 _ => return None,
             };
-            if type_name != "infer" {
+            if member != "infer" {
+                return None;
+            }
+            if !self.zod_imports.values().any(|local| local == qualifier) {
                 return None;
             }
             // Check type arguments: <typeof SchemaName>
             if let Some(type_args) = &type_ref.type_arguments
-                // type_args is Box<TSTypeParameterInstantiation> with params field
                 && let Some(TSType::TSTypeQuery(type_query)) = type_args.params.first()
-            {
-                // expr_name is TSTypeQueryExprName which inherits TSTypeName
-                // We need to match using the TSTypeName variants
-                if let oxc_ast::ast::TSTypeQueryExprName::IdentifierReference(ref_ident) =
+                && let oxc_ast::ast::TSTypeQueryExprName::IdentifierReference(ref_ident) =
                     &type_query.expr_name
-                {
-                    let schema_name = ref_ident.name.to_string();
-                    // Resolve the schema name in bindings
-                    return self.bindings.get(&schema_name).cloned();
+            {
+                let schema_name = ref_ident.name.to_string();
+                // Same-file schema (any declaration order — the analyzer runs
+                // two passes).
+                if let Some(schema) = self.bindings.get(&schema_name) {
+                    return Some(schema.clone());
+                }
+                // An imported (or re-exported) schema: hand the resolver an
+                // import reference so it can follow it cross-file, with the
+                // correct provenance (local -> exported name + specifier).
+                if let Some((imported_name, from_specifier)) = self.all_imports.get(&schema_name) {
+                    return Some(ZodSchema {
+                        properties: Vec::new(),
+                        uncertain: false,
+                        import_ref: Some(ImportedSchemaRef {
+                            local_name: imported_name.clone(),
+                            from_specifier: from_specifier.clone(),
+                        }),
+                    });
                 }
             }
         }
@@ -264,50 +292,70 @@ impl<'ast> ZodAnalyzer<'ast> {
     }
 
     fn analyze_class_declaration(&self, cls: &oxc_ast::ast::Class<'ast>) -> Option<ZodSchema> {
-        // Check for `extends createZodDto(SchemaExpr)`
+        // Check for `extends createZodDto(SchemaExpr)` — named (possibly
+        // aliased) or namespace-imported (`nz.createZodDto`).
         if let Some(super_class) = &cls.super_class
             && let Expression::CallExpression(call) = super_class
-            && let Expression::Identifier(callee) = &call.callee
+            && self.create_zod_dto_callee(&call.callee).is_some()
         {
-            // Check if callee is imported from 'nestjs-zod' as createZodDto
-            let callee_name = callee.name.as_str();
-            if self
-                .nestjs_zod_imports
-                .get("createZodDto")
-                .is_some_and(|local_name| local_name == callee_name)
+            // First argument is the schema expression
+            if let Some(first_arg) = call.arguments.first()
+                && let Some(expr) = first_arg.as_expression()
             {
-                // First argument is the schema expression
-                if let Some(first_arg) = call.arguments.first()
-                    && let Some(expr) = first_arg.as_expression()
-                {
-                    // Try to analyze as a Zod call (e.g., z.object(...))
-                    if let Some(schema) = self.analyze_zod_call(expr) {
+                // Try to analyze as a Zod call (e.g., z.object(...))
+                if let Some(schema) = self.analyze_zod_call(expr) {
+                    return Some(schema);
+                }
+                // If it's an identifier, look it up in bindings (e.g., CreateUserSchema)
+                if let Expression::Identifier(ident) = expr {
+                    let schema_name = ident.name.to_string();
+                    if let Some(schema) = self.bindings.get(&schema_name).cloned() {
                         return Some(schema);
                     }
-                    // If it's an identifier, look it up in bindings (e.g., CreateUserSchema)
-                    if let Expression::Identifier(ident) = expr {
-                        let schema_name = ident.name.to_string();
-                        if let Some(schema) = self.bindings.get(&schema_name).cloned() {
-                            return Some(schema);
-                        }
-                        // If not in local bindings, check if it's an imported schema
-                        if let Some((imported_name, from_specifier)) =
-                            self.all_imports.get(&schema_name)
-                        {
-                            return Some(ZodSchema {
-                                properties: Vec::new(),
-                                uncertain: false,
-                                import_ref: Some(ImportedSchemaRef {
-                                    local_name: imported_name.clone(),
-                                    from_specifier: from_specifier.clone(),
-                                }),
-                            });
-                        }
+                    // If not in local bindings, check if it's an imported schema
+                    if let Some((imported_name, from_specifier)) =
+                        self.all_imports.get(&schema_name)
+                    {
+                        return Some(ZodSchema {
+                            properties: Vec::new(),
+                            uncertain: false,
+                            import_ref: Some(ImportedSchemaRef {
+                                local_name: imported_name.clone(),
+                                from_specifier: from_specifier.clone(),
+                            }),
+                        });
                     }
                 }
             }
         }
         None
+    }
+
+    /// If `callee` denotes `createZodDto` imported from `nestjs-zod` — as a
+    /// named/aliased identifier or as a namespace member — return its name.
+    fn create_zod_dto_callee(&self, callee: &Expression<'ast>) -> Option<String> {
+        match callee {
+            Expression::Identifier(id) => self
+                .nestjs_zod_imports
+                .get("createZodDto")
+                .filter(|local| local == &id.name.as_str())
+                .map(|_| id.name.to_string()),
+            Expression::StaticMemberExpression(mem) => {
+                let Expression::Identifier(object) = &mem.object else {
+                    return None;
+                };
+                let is_namespace_local = self
+                    .nestjs_zod_imports
+                    .get("*")
+                    .is_some_and(|local| local == object.name.as_str());
+                if is_namespace_local && mem.property.name.as_str() == "createZodDto" {
+                    Some("createZodDto".to_owned())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     /// Analyze a potential Zod call expression.
@@ -320,26 +368,41 @@ impl<'ast> ZodAnalyzer<'ast> {
         }
     }
 
-    /// Analyze a CallExpression that might be a Zod schema or a transformation chain.
+    /// Analyze a CallExpression that might be a Zod schema or a
+    /// transformation chain. Supported shapes:
+    ///
+    /// - `z.object({ ... })` (direct);
+    /// - `Base.method(...)` — one transformation on a known schema binding;
+    /// - multi-step chains whose base is an inline `z.object({ ... })` or a
+    ///   known binding, e.g. `z.object({ ... }).pick({ ... }).partial()`.
+    ///
+    /// Anything else (chains starting at `z.string()`, unknown methods,
+    /// non-literal arguments) stays unresolved — conservative, never guessed.
     fn analyze_call(&self, call: &CallExpression<'ast>) -> Option<ZodSchema> {
         // First check if it's a direct z.object(...) call
         if let Some(schema) = self.analyze_direct_zod_object(call) {
             return Some(schema);
         }
 
-        // Check if it's a chained transformation on a known schema binding
-        if let Expression::StaticMemberExpression(mem) = &call.callee
-            && let Expression::Identifier(obj_ident) = &mem.object
+        let chain = self.collect_chain(call);
+        // Case 1: the innermost call is an inline `z.object({ ... })` — it is
+        // the base; the rest of the chain applies to it
+        // (`z.object({ ... }).omit({ ... }).partial()`).
+        if chain.len() >= 2
+            && let Some(base) = self.analyze_direct_zod_object(chain[0])
         {
-            let base_name = obj_ident.name.to_string();
-            if let Some(base_schema) = self.bindings.get(&base_name) {
-                // Collect the full chain of member calls
-                let chain = self.collect_chain(call);
-                return Some(self.analyze_chained(base_schema.clone(), &chain));
-            }
+            return Some(self.analyze_chained(base, &chain[1..]));
         }
-
-        None
+        // Case 2: the innermost call transforms a known schema binding; every
+        // collected call applies outward (`Base.pick({ ... }).extend({ ... })`).
+        let Expression::StaticMemberExpression(mem) = &chain[0].callee else {
+            return None;
+        };
+        let Expression::Identifier(ident) = &mem.object else {
+            return None;
+        };
+        let base = self.bindings.get(ident.name.as_str())?.clone();
+        Some(self.analyze_chained(base, &chain))
     }
 
     /// Analyze a direct z.object(...) call (or aliased variants).
@@ -439,16 +502,16 @@ impl<'ast> ZodAnalyzer<'ast> {
     fn analyze_chained(&self, base: ZodSchema, chain: &[&CallExpression<'ast>]) -> ZodSchema {
         let mut current = base;
         for call in chain {
-            let (_base_name, method) = match self.extract_callee_name(&call.callee) {
-                Some(n) => n,
-                None => {
-                    return ZodSchema {
-                        properties: vec![],
-                        uncertain: true,
-                        import_ref: None,
-                    };
-                }
+            // In a chain every callee's object is the previous call, so only
+            // the member name matters here (never the object expression).
+            let Expression::StaticMemberExpression(mem) = &call.callee else {
+                return ZodSchema {
+                    properties: vec![],
+                    uncertain: true,
+                    import_ref: None,
+                };
             };
+            let method = mem.property.name.to_string();
             // The base_name should be the previous call's result (we track via chaining)
             // For simplicity, we just check method name.
             match method.as_str() {
@@ -682,6 +745,90 @@ export const StripSchema = BaseSchema.strip();
         ] {
             assert_eq!(schemas.get(name).unwrap().properties, vec!["name"]);
         }
+    }
+
+    #[test]
+    fn multi_step_chain_from_an_inline_z_object() {
+        let source = r#"
+import { z } from 'zod';
+export const CreateUserSchema = z
+  .object({
+    name: z.string(),
+    email: z.string(),
+    age: z.number(),
+    password: z.string(),
+  })
+  .omit({ password: true })
+  .partial()
+  .required({ email: true });
+"#;
+        let schemas = analyze_zod_in_file(source);
+        let schema = schemas.get("CreateUserSchema").unwrap();
+        assert_eq!(schema.properties, vec!["name", "email", "age"]);
+        assert!(!schema.uncertain);
+    }
+
+    #[test]
+    fn multi_step_chain_from_a_known_binding() {
+        let source = r#"
+import { z } from 'zod';
+export const BaseSchema = z.object({ name: z.string(), email: z.string(), age: z.number() });
+export const PickedSchema = BaseSchema.pick({ name: true, email: true }).extend({ phone: z.string() });
+"#;
+        let schemas = analyze_zod_in_file(source);
+        let schema = schemas.get("PickedSchema").unwrap();
+        assert_eq!(schema.properties, vec!["name", "email", "phone"]);
+    }
+
+    #[test]
+    fn forward_reference_z_infer_resolves() {
+        let source = r#"
+import { z } from 'zod';
+export type CreateUserDto = z.infer<typeof CreateUserSchema>;
+const CreateUserSchema = z.object({ name: z.string() });
+"#;
+        let schemas = analyze_zod_in_file(source);
+        let schema = schemas.get("CreateUserDto").unwrap();
+        assert_eq!(schema.properties, vec!["name"]);
+    }
+
+    #[test]
+    fn z_infer_requires_zod_provenance() {
+        let source = r#"
+import { z } from 'zod';
+import * as nz from 'other-lib';
+const S = z.object({ name: z.string() });
+export type A = nz.infer<typeof S>;
+export type B = infer<typeof S>;
+"#;
+        let schemas = analyze_zod_in_file(source);
+        assert!(!schemas.contains_key("A"), "a foreign namespace is not Zod");
+        assert!(!schemas.contains_key("B"), "a bare `infer` is not Zod");
+    }
+
+    #[test]
+    fn namespace_imported_create_zod_dto_is_recognized() {
+        let source = r#"
+import * as nz from 'nestjs-zod';
+import { z } from 'zod';
+const CreateUserSchema = z.object({ name: z.string() });
+export class CreateUserDto extends nz.createZodDto(CreateUserSchema) {}
+"#;
+        let schemas = analyze_zod_in_file(source);
+        let schema = schemas.get("CreateUserDto").unwrap();
+        assert_eq!(schema.properties, vec!["name"]);
+    }
+
+    #[test]
+    fn an_unrelated_namespace_member_is_not_create_zod_dto() {
+        let source = r#"
+import * as other from 'some-lib';
+import { z } from 'zod';
+const CreateUserSchema = z.object({ name: z.string() });
+export class CreateUserDto extends other.createZodDto(CreateUserSchema) {}
+"#;
+        let schemas = analyze_zod_in_file(source);
+        assert!(!schemas.contains_key("CreateUserDto"));
     }
 
     #[test]

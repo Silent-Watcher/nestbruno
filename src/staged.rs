@@ -357,7 +357,8 @@ fn collect_snapshot(
         };
         let in_scope = source_relative(&project_relative, config)
             .is_some_and(|source_relative| could_be_dependency(matcher, &source_relative))
-            || project_relative == Path::new("tsconfig.json");
+            || project_relative == Path::new("tsconfig.json")
+            || project_relative == Path::new("package.json");
         if !in_scope {
             continue;
         }
@@ -1158,6 +1159,34 @@ export class UsersController {
                 route.body
             );
         }
+    }
+
+    #[test]
+    fn a_staged_package_json_supplies_imports_subpaths() {
+        let fixture = Fixture::new();
+        let controller = DTO_CONTROLLER.replace(
+            "from './dto/create-user.dto'",
+            "from '#src/dto/create-user.dto.js'",
+        );
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", controller.as_bytes()),
+                (
+                    "src/dto/create-user.dto.ts",
+                    b"export class CreateUserDto {\n  name: string;\n}\n",
+                ),
+                (
+                    r#"package.json"#,
+                    br##"{ "imports": { "#src/*": "./src/*" } }"##.as_slice(),
+                ),
+            ],
+        );
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        assert!(first_body(&analysis).contains("\"name\""));
     }
 
     #[test]

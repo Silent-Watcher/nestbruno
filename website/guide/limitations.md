@@ -22,9 +22,10 @@ NestBruno reflects what is statically visible in decorators. Not modelled:
   `#`, whitespace or <span v-pre>`{{`</span>. Body examples are skeletons,
   not full validation schemas. DTO resolution has boundaries — see
   [DTO Resolution](/guide/dto-resolution) for the full supported subset
-  (same-file DTOs must not use `export`; Zod chains are limited to one
-  statically provable transformation; `createZodDto` classes must live in
-  an imported module).
+  (same-file DTOs must not use `export`; Zod chains must start at
+  `z.object` or a schema constant and use only statically provable
+  transformations; `createZodDto` classes must live in an imported
+  module).
 - **Watch mode dependency invalidation is index-based** — editing an
   imported DTO file re-analyzes exactly the controllers whose last analysis
   recorded an import of it (added 2026-11-10). A file that no analysis ever
