@@ -525,6 +525,28 @@ bump and no releases during this phase (explicit prompt rule).
   `website/guide/commands.md` (verify section + exit codes),
   `website/guide/synchronization.md` (verify vs `sync --dry-run`).
 
+#### Milestone 14.3 — Shell completion generation (completed 2026-11-10)
+
+- Dependency: `clap_complete = "4"` (the official clap companion; same
+  major line as the existing clap 4). Generation comes from the real
+  command tree — no hand-written per-shell scripts that could drift.
+- CLI: `nestbruno completions <shell>` with `Shell` (Bash, Zsh, Fish,
+  PowerShell, Elvish) as the value enum; documented and tested are
+  bash/zsh/fish/powershell. Output goes exclusively to stdout through the
+  existing BufWriter; nothing is written to disk, no shell configuration is
+  touched, no shell process is spawned, generation is deterministic.
+- Tests: 6 integration (`tests/completions.rs`): all four documented shells
+  produce non-empty scripts naming the tool on stdout only, subcommand and
+  option names appear (bash/zsh checked for `verify`, `sync`,
+  `completions`, `--format`, `--dry-run`, `--staged`), byte-identical
+  repeated generation, unknown shell → usage error (exit 2), missing
+  shell argument → exit 2, `--help` lists the command. Gates: fmt + clippy
+  `-D warnings` clean; 662 tests pass (was 656); `cargo build --release`
+  passes (dependency change).
+- Docs: CHANGELOG (Unreleased), STATUS, `docs/project-status.md`,
+  `website/guide/commands.md` (completions section with per-shell setup),
+  `website/guide/getting-started.md` (installation hint).
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

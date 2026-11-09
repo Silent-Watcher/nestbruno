@@ -49,6 +49,11 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
             staged: staged_only,
             format,
         } => verify_command(cli, *staged_only, *format, out, reporter),
+        Command::Completions { shell } => {
+            let mut command = <Cli as clap::CommandFactory>::command();
+            clap_complete::generate(*shell, &mut command, "nestbruno", out);
+            Ok(Outcome::Success)
+        }
         Command::Watch { debounce } => watch_command(cli, *debounce, out, reporter),
     }
 }

@@ -36,6 +36,11 @@ path = "src/main.rs"
 [dependencies]
 # CLI parsing: derive API keeps the command structure declarative.
 clap = { version = "4", features = ["derive"] }
+# Shell completion generation from the actual command tree (Phase 14.3).
+# The official companion crate of clap; same major version line. std has no
+# completion generation, and hand-written per-shell scripts would drift
+# from the CLI definition.
+clap_complete = "4"
 # Configuration file format (nestbruno.toml) and its typed deserialization.
 serde = { version = "1", features = ["derive"] }
 toml = "1"

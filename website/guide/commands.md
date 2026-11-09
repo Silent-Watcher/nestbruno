@@ -156,6 +156,26 @@ sync's exit code (0 even when changes are pending). `verify` answers "is
 the collection in sync?" and fails (exit 1) when it is not — use it in CI;
 use `--dry-run` when you want the plan.
 
+## `nestbruno completions <shell>`
+
+Prints a shell completion script for **Bash**, **Zsh**, **Fish** or
+**PowerShell** to stdout, generated from the actual command tree:
+
+```bash
+nestbruno completions bash > ~/.local/share/bash-completion/completions/nestbruno
+nestbruno completions zsh > "${fpath[1]}/_nestbruno"
+nestbruno completions fish > ~/.config/fish/completions/nestbruno.fish
+nestbruno completions powershell > nestbruno.ps1
+```
+
+- Nothing is written to disk and no shell configuration is changed: the
+  command only prints. Redirect the output yourself (see above).
+- Installing the script enables completions on the next shell start; until
+  you place it where your shell looks, nothing changes. For Zsh, the
+  target directory must be in your `fpath` before `compinit` runs.
+- Generation is deterministic and needs no shell process: the script can
+  be generated at package build time or redirected anywhere.
+
 ## `nestbruno watch [--debounce <MS>]`
 
 Runs an initial sync, then keeps the collection synchronized while you edit.

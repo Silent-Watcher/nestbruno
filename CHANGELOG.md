@@ -8,6 +8,10 @@ All notable changes to NestBruno are documented here. The format follows
 
 ### Added
 
+- **Shell completion generation** (Phase 14.3): `nestbruno completions
+  <shell>` prints a completion script for Bash, Zsh, Fish or PowerShell to
+  stdout, generated from the actual command tree via `clap_complete`.
+  Nothing is written to disk and no shell configuration is touched.
 - **Read-only collection verification** (Phase 14.2): the new `nestbruno
   verify` command checks whether the generated collection matches the
   current NestJS sources without writing anything — it reuses the existing

@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 
 /// Output format of a command that produces structured results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -79,6 +80,16 @@ pub enum Command {
         /// Select the output format.
         #[arg(long, value_enum, default_value = "text")]
         format: OutputFormat,
+    },
+    /// Print shell completion scripts to stdout.
+    ///
+    /// The script is generated from the actual command tree; nothing is
+    /// written to disk and no shell configuration is touched. Redirect the
+    /// output to a file to install it.
+    Completions {
+        /// The shell to generate completions for.
+        #[arg(value_enum)]
+        shell: Shell,
     },
     /// Check whether the collection matches the sources, without writing.
     ///

@@ -20,6 +20,15 @@ git clone https://github.com/Silent-Watcher/nestbruno
 cargo install --path nestbruno
 ```
 
+### Shell completions (optional)
+
+Generate a completion script for your shell and place it where the shell
+finds it — details in [Commands](/guide/commands#nestbruno-completions-shell):
+
+```sh
+nestbruno completions bash > ~/.local/share/bash-completion/completions/nestbruno
+```
+
 ## First collection in three steps
 
 ### 1. Initialize
