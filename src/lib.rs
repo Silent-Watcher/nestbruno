@@ -11,6 +11,7 @@ pub mod diag;
 pub mod discovery;
 pub mod error;
 pub mod nest;
+pub mod output;
 pub mod project;
 pub mod resolve;
 pub mod route;

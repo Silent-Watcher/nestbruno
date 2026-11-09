@@ -4,6 +4,19 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Machine-readable JSON output** (Phase 14.1): `discover`, `routes` and
+  `sync` accept `--format json` and print exactly one JSON document to
+  stdout — routes with parameters, body shape and source locations,
+  candidate files, or the complete synchronization result (created, updated,
+  unchanged, deleted, preserved, conflicts with a stable machine-readable
+  `reason`, failed operations, staged changes, diagnostics, completeness).
+  Human-readable text remains the default; diagnostics keep going to stderr;
+  exit codes are unchanged.
+
 ## [0.5.0] — 2026-11-10
 
 Phase 13 — query and param DTO resolution through the shared resolver.

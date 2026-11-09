@@ -87,6 +87,18 @@ impl ConflictReason {
         )
     }
 
+    /// Stable machine-readable name (used by the JSON output of the CLI).
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::GeneratedFileModified => "generated_file_modified",
+            Self::StaleGeneratedFileModified => "stale_generated_file_modified",
+            Self::TargetOccupied => "target_occupied",
+            Self::DuplicateRouteIdentity => "duplicate_route_identity",
+            Self::DuplicateBrunoIdentity => "duplicate_bruno_identity",
+            Self::InvalidMetadata(_) => "invalid_metadata",
+        }
+    }
+
     pub fn description(&self) -> String {
         match self {
             Self::GeneratedFileModified => "the generated request was modified, and the route has changed since it was generated".to_owned(),

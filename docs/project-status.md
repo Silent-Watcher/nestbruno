@@ -62,6 +62,10 @@
   `@Query()` objects produce disabled, empty query parameters
   (deduplicated against named ones); unnamed `@Param()` objects are matched
   against URL-derived path parameters — no placeholders invented.
+- **Phase 14 (CLI & CI developer experience):** in progress. Milestone 14.1
+  shipped: `discover`, `routes` and `sync` accept `--format json` and print
+  exactly one JSON document to stdout (diagnostics as structured objects,
+  deterministic ordering, human text unchanged as the default).
 - **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
   v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
   paths (including NodeNext `.js`/`.mjs`/`.cjs` specifier extensions),
@@ -85,10 +89,10 @@
 | `init` | Works: writes `nestbruno.toml`, never overwrites. |
 | `check` | Works: validates configuration and that the source directory exists. |
 | `discover` | Works: lists candidate controller files, one per line. Diagnostic/inspection command. |
-| `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format, not a stable machine interface). |
+| `routes` | Works: prints extracted routes, parameters and locations. Diagnostic/inspection command (text format for humans; `--format json` provides the machine-readable document). |
 | `generate [--force]` | Works: writes request files with parameter type metadata and cross-file DTO/Zod body skeletons; existing differing files are left alone unless `--force`; nothing is ever deleted. |
 | `sync [--dry-run]` | Works: creates, updates in place (including DTO/metadata changes), deletes unmodified generated requests of removed routes; preserves unknown files; reports conflicts (exit 4). |
-| `sync --staged [--dry-run]` | Works: the same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git. |
+| `sync --staged [--dry-run]` | Works: the same reconciliation against the Git index state; no-op unless a relevant file is staged; never touches Git. `--format json` (14.1) on discover/routes/sync: one JSON document on stdout. |
 | `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
 
 ## Current limitations

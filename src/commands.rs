@@ -7,12 +7,13 @@ use std::path::PathBuf;
 
 use crate::bruno::generate;
 use crate::bruno::writer::{FileStatus, WriteReport, write_collection};
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, OutputFormat};
 use crate::config::{CONFIG_FILE_NAME, CONFIG_TEMPLATE};
 use crate::diag::Reporter;
 use crate::discovery::discover_controllers;
 use crate::error::Error;
 use crate::nest::analyze_files;
+use crate::output;
 use crate::project::Project;
 use crate::route::{Controller, ParameterName};
 use crate::sync::{Desired, SyncResult, synchronize};
@@ -33,13 +34,14 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
     match &cli.command {
         Command::Init => init(cli, out).map(|()| Outcome::Success),
         Command::Check => check(cli, out, reporter).map(|()| Outcome::Success),
-        Command::Discover => discover(cli, out, reporter),
-        Command::Routes => routes(cli, out, reporter),
+        Command::Discover { format } => discover(cli, *format, out, reporter),
+        Command::Routes { format } => routes(cli, *format, out, reporter),
         Command::Generate { force } => generate_command(cli, *force, out, reporter),
         Command::Sync {
             dry_run,
             staged: staged_only,
-        } => sync_command(cli, *dry_run, *staged_only, out, reporter),
+            format,
+        } => sync_command(cli, *dry_run, *staged_only, *format, out, reporter),
         Command::Watch { debounce } => watch_command(cli, *debounce, out, reporter),
     }
 }
@@ -117,7 +119,12 @@ fn check(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<(), Erro
     result.map_err(Error::Output)
 }
 
-fn discover(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outcome, Error> {
+fn discover(
+    cli: &Cli,
+    format: OutputFormat,
+    out: &mut dyn Write,
+    reporter: &Reporter,
+) -> Result<Outcome, Error> {
     let project = open_project(cli, reporter)?;
     let discovery = discover_controllers(&project)?;
 
@@ -130,8 +137,13 @@ fn discover(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outco
         discovery.directories_read
     ));
 
-    for file in &discovery.files {
-        writeln!(out, "{}", file.path.display()).map_err(Error::Output)?;
+    match format {
+        OutputFormat::Text => {
+            for file in &discovery.files {
+                writeln!(out, "{}", file.path.display()).map_err(Error::Output)?;
+            }
+        }
+        OutputFormat::Json => output::write_json(out, &output::Discover::from(&discovery))?,
     }
     Ok(if discovery.is_incomplete() {
         Outcome::Incomplete
@@ -148,13 +160,23 @@ fn discover(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outco
 /// ```
 ///
 /// Controllers are emitted in discovery order, routes in source order.
-fn routes(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outcome, Error> {
+fn routes(
+    cli: &Cli,
+    format: OutputFormat,
+    out: &mut dyn Write,
+    reporter: &Reporter,
+) -> Result<Outcome, Error> {
     let project = open_project(cli, reporter)?;
     let discovery = discover_controllers(&project)?;
     let analysis = analyze_files(&project, &discovery.files)?;
 
-    let diagnostics = discovery.diagnostics.iter().chain(&analysis.diagnostics);
-    for diagnostic in diagnostics {
+    let diagnostics: Vec<_> = discovery
+        .diagnostics
+        .iter()
+        .chain(&analysis.diagnostics)
+        .cloned()
+        .collect();
+    for diagnostic in &diagnostics {
         reporter.report(diagnostic);
     }
     reporter.verbose(format_args!(
@@ -163,13 +185,24 @@ fn routes(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Outcome
         analysis.controllers.len()
     ));
 
-    for controller in &analysis.controllers {
-        write_routes(out, controller).map_err(Error::Output)?;
+    let complete = !discovery.is_incomplete() && !analysis.is_incomplete();
+    match format {
+        OutputFormat::Text => {
+            for controller in &analysis.controllers {
+                write_routes(out, controller).map_err(Error::Output)?;
+            }
+        }
+        OutputFormat::Json => {
+            output::write_json(
+                out,
+                &output::Routes::from_analysis(&analysis.controllers, &diagnostics, complete),
+            )?;
+        }
     }
-    Ok(if discovery.is_incomplete() || analysis.is_incomplete() {
-        Outcome::Incomplete
-    } else {
+    Ok(if complete {
         Outcome::Success
+    } else {
+        Outcome::Incomplete
     })
 }
 
@@ -281,28 +314,44 @@ fn sync_command(
     cli: &Cli,
     dry_run: bool,
     staged_only: bool,
+    format: OutputFormat,
     out: &mut dyn Write,
     reporter: &Reporter,
 ) -> Result<Outcome, Error> {
     let project = open_project(cli, reporter)?;
 
-    let (controllers, extra_diagnostics, source_complete) = if staged_only {
+    let (controllers, extra_diagnostics, source_complete, staged_changes) = if staged_only {
         let matcher = crate::discovery::Matcher::new(project.config())?;
         let staged = crate::staged::staged_sources(&project, &matcher)?;
         if staged.is_empty() {
-            writeln!(out, "No relevant staged NestJS changes detected.").map_err(Error::Output)?;
+            if format == OutputFormat::Json {
+                // One document even when there is nothing to do.
+                output::write_json(
+                    out,
+                    &output::Sync {
+                        dry_run,
+                        complete: true,
+                        ..output::Sync::default()
+                    },
+                )?;
+            } else {
+                writeln!(out, "No relevant staged NestJS changes detected.")
+                    .map_err(Error::Output)?;
+            }
             return Ok(Outcome::Success);
         }
-        writeln!(out, "Staged: {} relevant change(s):", staged.changes.len())
-            .map_err(Error::Output)?;
-        for change in &staged.changes {
-            writeln!(
-                out,
-                "  {} {}",
-                change.status.as_str(),
-                change.path.display()
-            )
-            .map_err(Error::Output)?;
+        if format == OutputFormat::Text {
+            writeln!(out, "Staged: {} relevant change(s):", staged.changes.len())
+                .map_err(Error::Output)?;
+            for change in &staged.changes {
+                writeln!(
+                    out,
+                    "  {} {}",
+                    change.status.as_str(),
+                    change.path.display()
+                )
+                .map_err(Error::Output)?;
+            }
         }
         let mut complete = !staged
             .diagnostics
@@ -312,14 +361,14 @@ fn sync_command(
         complete &= !analysis.is_incomplete();
         let mut diagnostics = staged.diagnostics;
         diagnostics.extend(analysis.diagnostics);
-        (analysis.controllers, diagnostics, complete)
+        (analysis.controllers, diagnostics, complete, staged.changes)
     } else {
         let discovery = discover_controllers(&project)?;
         let analysis = analyze_files(&project, &discovery.files)?;
         let complete = !discovery.is_incomplete() && !analysis.is_incomplete();
         let mut diagnostics = discovery.diagnostics;
         diagnostics.extend(analysis.diagnostics);
-        (analysis.controllers, diagnostics, complete)
+        (analysis.controllers, diagnostics, complete, Vec::new())
     };
 
     let generation = generate(project.config(), &controllers);
@@ -338,18 +387,31 @@ fn sync_command(
         reporter.report(diagnostic);
     }
 
-    write_sync_report(out, &project.config().bruno, &result, reporter.is_verbose())
-        .map_err(Error::Output)?;
-
     let generation_failed = generation
         .diagnostics
         .iter()
         .any(|d| d.severity == crate::diag::Severity::Error);
-    let incomplete = !source_complete || generation_failed || !result.is_complete();
-    Ok(if incomplete {
-        Outcome::Incomplete
-    } else {
+    let complete = source_complete && !generation_failed && result.is_complete();
+    match format {
+        OutputFormat::Text => {
+            write_sync_report(out, &project.config().bruno, &result, reporter.is_verbose())
+                .map_err(Error::Output)?
+        }
+        OutputFormat::Json => output::write_json(
+            out,
+            &output::Sync::from_result(
+                &project.config().bruno,
+                &result,
+                dry_run,
+                complete,
+                &staged_changes,
+            ),
+        )?,
+    }
+    Ok(if complete {
         Outcome::Success
+    } else {
+        Outcome::Incomplete
     })
 }
 

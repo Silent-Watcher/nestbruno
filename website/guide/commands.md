@@ -7,6 +7,43 @@ Global flags (usable with every command):
 | `-C, --project <DIR>` | use this directory as the project root instead of searching upwards |
 | `-v, --verbose` | also print `note:`-level diagnostics |
 
+## JSON output
+
+`discover`, `routes` and `sync` accept `--format json` and print **exactly
+one JSON document** to stdout, suitable for scripts, CI and AI agents:
+
+```bash
+nestbruno routes --format json
+nestbruno discover --format json
+nestbruno sync --dry-run --format json
+nestbruno sync --staged --format json
+```
+
+What the documents contain:
+
+- `routes`: every route with `controller`, `handler`, `method`, `path`,
+  `parameters` (kind, name, index, type annotation, resolved DTO fields),
+  the `body` shape and the `source` location, plus `diagnostics` and a
+  `complete` flag that is `false` when some path could not be processed.
+- `discover`: the candidate `files` (deterministically sorted),
+  `directories_read`, `diagnostics`, `complete`.
+- `sync`: `dry_run`, `applied`, `complete`, `staged_changes`, and the
+  result lists `created` / `updated` / `unchanged` / `deleted` /
+  `preserved`, `conflicts` (with a stable machine-readable `reason`,
+  a `description` and a `suggestion`), `failed` operations and
+  `diagnostics`.
+
+Rules:
+
+- diagnostics are structured objects *in* the document; human-readable
+  diagnostics and progress lines keep going to stderr, so stdout stays
+  parseable;
+- human-readable text is the default and is unchanged;
+- exit codes are unchanged (0 success, 3 configuration error,
+  4 incomplete, 1 runtime failure);
+- output is deterministic: repeated runs on identical input are
+  byte-identical.
+
 ## `nestbruno init`
 
 Writes a `nestbruno.toml` with the documented defaults. Never overwrites an

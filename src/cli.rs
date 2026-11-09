@@ -3,7 +3,17 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
+
+/// Output format of a command that produces structured results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text (the default).
+    Text,
+    /// One complete JSON document on stdout; diagnostics are also structured
+    /// there, progress messages stay on stderr.
+    Json,
+}
 
 #[derive(Debug, Parser)]
 #[command(
@@ -33,9 +43,17 @@ pub enum Command {
     /// Validate the configuration and project layout.
     Check,
     /// List the files that may contain NestJS controllers.
-    Discover,
+    Discover {
+        /// Select the output format.
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+    },
     /// Print the routes extracted from the NestJS sources.
-    Routes,
+    Routes {
+        /// Select the output format.
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
+    },
     /// Generate Bruno request files from the NestJS routes.
     ///
     /// Existing files are never modified unless --force is given. Requests
@@ -58,6 +76,9 @@ pub enum Command {
         /// instead of the working tree.
         #[arg(long)]
         staged: bool,
+        /// Select the output format.
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
     },
     /// Watch the sources and keep the collection synchronized.
     ///
@@ -109,7 +130,8 @@ mod tests {
             cli.command,
             Command::Sync {
                 dry_run: true,
-                staged: false
+                staged: false,
+                format: OutputFormat::Text
             }
         ));
         let cli = Cli::try_parse_from(["nestbruno", "sync"]).unwrap();
@@ -117,7 +139,8 @@ mod tests {
             cli.command,
             Command::Sync {
                 dry_run: false,
-                staged: false
+                staged: false,
+                format: OutputFormat::Text
             }
         ));
         let cli = Cli::try_parse_from(["nestbruno", "sync", "--staged", "--dry-run"]).unwrap();
@@ -125,9 +148,44 @@ mod tests {
             cli.command,
             Command::Sync {
                 dry_run: true,
-                staged: true
+                staged: true,
+                format: OutputFormat::Text
             }
         ));
+    }
+
+    #[test]
+    fn format_defaults_to_text_and_accepts_json() {
+        let cli = Cli::try_parse_from(["nestbruno", "routes"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Routes {
+                format: OutputFormat::Text
+            }
+        ));
+        let cli = Cli::try_parse_from(["nestbruno", "routes", "--format", "json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Routes {
+                format: OutputFormat::Json
+            }
+        ));
+        let cli = Cli::try_parse_from(["nestbruno", "discover", "--format", "json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Discover {
+                format: OutputFormat::Json
+            }
+        ));
+        let cli = Cli::try_parse_from(["nestbruno", "sync", "--format", "json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync {
+                format: OutputFormat::Json,
+                ..
+            }
+        ));
+        assert!(Cli::try_parse_from(["nestbruno", "routes", "--format", "yaml"]).is_err());
     }
 
     #[test]

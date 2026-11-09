@@ -1,13 +1,15 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, v0.3.0 + Phase 12 (global prefix and URI versioning) implemented.*
+*Last updated: 2026-11-10, v0.5.0 + Phase 14.1 (`--format json` CLI output) implemented.*
 
 ## One-paragraph state
 
-The product is at **v0.4.0** with Phases 11.1, 12 and 13 complete (13 pending release) (owner-authorized master prompt
-of 2026-11-10: resolver completion → Phase 12 global prefix/versioning →
-Phase 13 query/param DTOs; version bumps follow semver per completed
-phase). Milestone 11.1.1: dependency reads are gated by
+The product is at **v0.5.0** with Phases 11.1, 12 and 13 complete, and
+Phase 14 (CLI & CI developer experience) in progress per the owner-authorized
+master prompt of 2026-11-10: 14.1 machine-readable JSON output is done, then
+14.2 read-only `verify`, 14.3 shell completions, 14.4 a GitHub Actions
+workflow template. No version bump during Phase 14 (explicit master-prompt
+rule for this phase). Milestone 11.1.1: dependency reads are gated by
 canonical-root, symlink-free, regular-file containment and all resolver
 budgets are enforced. Milestone 11.1.2: cross-file resolution is run-scoped —
 one `ResolverContext` per analysis run shares the module cache across
@@ -40,7 +42,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 628 tests (625 after Phase 12; +3 for Phase 13)
+- `cargo test --all-features` — pass, 639 tests (628 after Phase 13; +11 for Phase 14.1)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -49,12 +51,17 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 | --- | --- |
 | `init` | writes `nestbruno.toml`, never overwrites |
 | `check` | validates config + source directory |
-| `discover` | lists Controller candidate files |
-| `routes` | prints routes, params and source locations |
+| `discover` | lists Controller candidate files; `--format json` (Phase 14.1) |
+| `routes` | prints routes, params and source locations; `--format json` |
 | `generate [--force]` | writes `.bru` requests with parameter metadata and cross-file DTO/Zod body skeletons |
-| `sync [--dry-run]` | reconciles generated requests; preserves conflicts and user edits |
-| `sync --staged [--dry-run]` | reconstructs desired state from the Git index for relevant Controller files |
+| `sync [--dry-run]` | reconciles generated requests; preserves conflicts and user edits; `--format json` |
+| `sync --staged [--dry-run]` | reconstructs desired state from the Git index for relevant Controller files; `--format json` |
 | `watch [--debounce MS]` | incremental route sync with full-resync fallbacks |
+
+**New in Phase 14 (in progress):**
+- 14.1 done: `discover`/`routes`/`sync` accept `--format json` and print
+  exactly one JSON document to stdout (diagnostics included as structured
+  objects; human text stays the default; exit codes unchanged).
 
 **New in Phase 11 (shipped in v0.2.0):**
 - Cross-file class/interface DTO resolution from imports in Controller files

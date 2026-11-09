@@ -10,7 +10,7 @@ use std::path::PathBuf;
 /// Exit codes used by the CLI. `2` is reserved for usage errors, which clap
 /// reports itself.
 pub mod exit_code {
-    /// Unspecified runtime failure (I/O, unimplemented command).
+    /// Unspecified runtime failure (I/O, output serialization).
     pub const FAILURE: u8 = 1;
     /// The configuration or the project layout is invalid.
     pub const CONFIG: u8 = 3;
@@ -31,6 +31,9 @@ pub enum Error {
 
     #[error("cannot write command output: {0}")]
     Output(#[source] std::io::Error),
+
+    #[error("cannot serialize JSON output: {0}")]
+    Json(#[source] serde_json::Error),
 
     #[error("invalid configuration in {}: {source}", path.display())]
     ConfigParse {
@@ -109,6 +112,7 @@ impl Error {
             | Self::SourceOutsideProject { .. } => exit_code::CONFIG,
             Self::Io { .. }
             | Self::Output(_)
+            | Self::Json(_)
             | Self::AnalysisThread(_)
             | Self::UnsafeOutput { .. }
             | Self::Watch(_)

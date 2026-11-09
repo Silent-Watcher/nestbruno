@@ -457,6 +457,38 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
 - Tests: 3 end-to-end (`tests/cross_file.rs`). Record:
   `docs/phases/phase-13-query-param-dtos.md`.
 
+### Phase 14 — CLI & CI developer experience (in progress, started 2026-11-10)
+
+Owner-authorized master prompt: four milestones (JSON output, read-only
+verify, shell completions, GitHub Actions workflow template). No version
+bump and no releases during this phase (explicit prompt rule).
+
+#### Milestone 14.1 — Machine-readable JSON output (completed 2026-11-10)
+
+- `src/output.rs` (new): presentation-only serde DTOs built from the
+  existing route IR, `Discovery` and `SyncResult` — no duplicated logic.
+  `write_json` emits exactly one pretty-printed document (plus newline) to
+  stdout; serialization failures are `Error::Json` (exit 1).
+- CLI: `OutputFormat` value enum (`text` default, `json`), a `--format`
+  flag on `discover`, `routes` and `sync`. `ConflictReason::code()` adds a
+  stable machine-readable name per conflict reason.
+- Dependency: `serde_json` (companion of the existing `serde`; std has no
+  JSON serializer).
+- JSON contract: diagnostics are structured objects in the document;
+  human diagnostics still go to stderr; staged changes are `staged_changes`
+  entries; a no-op staged run emits a valid empty document; exit codes and
+  the human format are unchanged.
+- Tests: +10 integration (`tests/json.rs`): parseable single-document stdout
+  for every command (including empty project and no-op staged runs),
+  route/parameter/body/source fields, conflicts with reason codes, dry run
+  predicting the real run, staged changes, incomplete analysis (unix-only)
+  with diagnostics on stderr, invalid config producing no partial JSON,
+  byte-identical repeated runs, and the default format staying human
+  text. Plus 1 parse-level CLI unit test. Gates: fmt + clippy `-D warnings`
+  clean; 639 tests pass (was 628).
+- Docs: CHANGELOG (Unreleased), STATUS, `docs/project-status.md`,
+  `website/guide/commands.md`.
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

@@ -795,6 +795,7 @@ dependencies = [
  "oxc_span",
  "proptest",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror",
  "toml",
