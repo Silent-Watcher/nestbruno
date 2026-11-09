@@ -86,9 +86,31 @@ pub fn analyze_files(project: &Project, files: &[ControllerFile]) -> Result<Anal
 /// and become the [`crate::route::SourceLocation`] file of every extracted
 /// route, exactly as with [`analyze_files`]. The content must already be
 /// UTF-8 and within [`MAX_SOURCE_BYTES`]; the staged loader enforces this.
+///
+/// Without a project context no cross-file DTO resolution is performed
+/// (same-file DTOs only). Staged analysis uses
+/// [`analyze_sources_with_context`] with a Git-index source provider.
 pub fn analyze_sources(sources: &[(PathBuf, String)]) -> Result<Analysis, Error> {
+    analyze_sources_impl(sources, None)
+}
+
+/// Like [`analyze_sources`], but with a project context whose resolver reads
+/// dependency content through the caller-provided run context (for staged
+/// analysis: the Git-index provider).
+pub fn analyze_sources_with_context(
+    sources: &[(PathBuf, String)],
+    project: &Project,
+    resolver_context: &mut ResolverContext,
+) -> Result<Analysis, Error> {
+    analyze_sources_impl(sources, Some((project, resolver_context)))
+}
+
+fn analyze_sources_impl(
+    sources: &[(PathBuf, String)],
+    project: Option<(&Project, &mut ResolverContext)>,
+) -> Result<Analysis, Error> {
     let mut analysis = Analysis::default();
-    for (_, mut result) in analyze_contents(sources)? {
+    for (_, mut result) in analyze_contents(sources, project)? {
         analysis.controllers.append(&mut result.controllers);
         analysis.diagnostics.append(&mut result.diagnostics);
     }
@@ -149,15 +171,33 @@ pub fn analyze_each_with_context(
 }
 
 /// Like [`analyze_sources`], but keeps the result of each source separate.
-fn analyze_contents(sources: &[(PathBuf, String)]) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
+fn analyze_contents(
+    sources: &[(PathBuf, String)],
+    project: Option<(&Project, &mut ResolverContext)>,
+) -> Result<Vec<(PathBuf, FileAnalysis)>, Error> {
     let owned: Vec<(PathBuf, Option<String>)> = sources
         .iter()
         .map(|(path, content)| (path.clone(), Some(content.clone())))
         .collect();
-    run_analysis(owned, |relative, content| {
+    let (project, mut context) = match project {
+        Some((project, context)) => (Some(project), Some(context)),
+        None => (None, None),
+    };
+    let matcher = project.and_then(|project| Matcher::new(project.config()).ok());
+    run_analysis(owned, move |relative, content| {
         // The loader guarantees `Some` for in-memory sources.
+        let mut project_context = match (project, matcher.as_ref(), context.as_deref_mut()) {
+            (Some(project), Some(matcher), Some(resolver)) => Some(ProjectContext {
+                root: project.root(),
+                source_prefix: &project.config().source,
+                config: project.config(),
+                matcher,
+                resolver,
+            }),
+            _ => None,
+        };
         match content {
-            Some(source) => analyze_content(relative, &source, None),
+            Some(source) => analyze_content(relative, &source, project_context.as_mut()),
             None => FileAnalysis {
                 controllers: Vec::new(),
                 diagnostics: vec![Diagnostic::new(

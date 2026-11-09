@@ -6,6 +6,24 @@ All notable changes to NestBruno are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `sync --staged` now resolves cross-file DTOs against the Git index
+  (Phase 11.1, Milestone 11.1.4): a source-provider boundary
+  (`resolve::provider::SourceProvider`) separates the resolver from the
+  filesystem, with a working-tree provider (full containment discipline)
+  and a Git-index provider that reads only captured stage-0 blobs by object
+  id. A staged controller resolves against the staged DTO — an index
+  version is used even when the working tree holds different content, and
+  an unstaged working-tree edit never leaks in. A staged `tsconfig.json`
+  supplies `baseUrl`/`paths`; symlink and non-regular index entries are
+  rejected (note diagnostic) and degrade to the conservative unknown shape.
+- The `sync --staged` relevance gate now also fires for staged TypeScript
+  dependency files and `tsconfig.json` (previously only controller
+  candidates): a staged DTO edit alone updates the bodies of its importers.
+  If nothing relevant is staged it remains a clean no-op, and the desired
+  state is still reconstructed from the whole index.
+
 ### Fixed
 
 - Watch mode now invalidates controllers on dependency-only changes

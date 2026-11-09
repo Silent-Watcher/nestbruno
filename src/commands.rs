@@ -308,7 +308,7 @@ fn sync_command(
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.severity == crate::diag::Severity::Error);
-        let analysis = crate::nest::analyze_sources(&staged.sources)?;
+        let analysis = crate::staged::analyze_staged(&project, &staged)?;
         complete &= !analysis.is_incomplete();
         let mut diagnostics = staged.diagnostics;
         diagnostics.extend(analysis.diagnostics);

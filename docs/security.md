@@ -138,8 +138,9 @@ For Watch Mode, dependency events now invalidate dependants through the
 recorded reverse dependency index (Milestone 11.1.3); a file no analysis
 recorded as a dependency still triggers nothing, and event loss keeps the
 existing full-resync fallback — events remain hints, the filesystem the
-truth. For `sync --staged`, dependency contents must come only from the
-captured Git index; working-tree fallback is forbidden — until an
-index-only source provider exists, staged analysis intentionally resolves
-same-file DTOs only. See
+truth. For `sync --staged`, dependency contents come only from the captured
+Git index (Milestone 11.1.4): the `IndexProvider` resolves dependency
+modules from stage-0 regular blobs by object id, never the working tree; a
+missing, conflicted, or non-regular entry (symlink, submodule) is not
+resolvable and degrades to the conservative unknown shape. See
 [Phase 11 security and handoff notes](phases/phase-11-cross-file-dto-resolution.md).

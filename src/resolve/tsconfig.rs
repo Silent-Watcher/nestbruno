@@ -45,7 +45,7 @@ impl TsConfig {
     }
 
     /// Parse tsconfig text (JSONC) into a TsConfig.
-    fn parse(text: &str) -> Option<Self> {
+    pub fn parse(text: &str) -> Option<Self> {
         // Wrap in parens so the object literal is parsed as an expression.
         // JSONC comments and trailing commas are valid TS syntax.
         let source = format!("({text})");

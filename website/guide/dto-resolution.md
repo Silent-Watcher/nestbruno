@@ -181,11 +181,14 @@ stays `Unknown`. This is deliberately not comprehensive Zod compatibility.
 ## Where resolution runs
 
 Cross-file resolution is part of on-disk analysis: `generate`, `sync`,
-`watch` and `routes` all resolve imported DTOs. `sync --staged`
-deliberately does **not**: it analyzes the Git index snapshot only, and
-mixing index content with working-tree dependency files would produce
-results that match neither state. Staged requests therefore use same-file
-DTOs only.
+`watch` and `routes` all resolve imported DTOs. `sync --staged` resolves
+them too, against the Git index snapshot itself (added 2026-11-10): a
+dedicated source provider reads dependency content from the captured
+stage-0 blobs, so index and working-tree state are never mixed — a staged
+controller resolves against the staged DTO, even when the working tree
+holds something else. A staged `tsconfig.json` supplies `baseUrl`/`paths`
+mappings; symlink or non-regular index entries are rejected and degrade to
+the conservative unknown shape.
 
 ## Resource bounds
 

@@ -333,6 +333,39 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
   invalidation, delete/recreate). Gates: fmt + clippy `-D warnings` clean;
   573 tests pass (was 562).
 
+#### Milestone 11.1.4 — Git-index source provider and staged cross-file resolution (completed 2026-11-10)
+
+- **Provider boundary** (`src/resolve/provider.rs`, new): the resolver reads
+  dependency content only through `SourceProvider` (`exists` + validated
+  `read`). `DiskProvider` keeps the full containment discipline (canonical
+  root, symlink-free components, regular file); candidate selection in
+  `module.rs` now asks the provider instead of touching the filesystem.
+  `ResolverContext::new` is disk-backed; `with_parts` takes any provider
+  plus an explicit tsconfig.
+- **Index provider** (`src/staged.rs`): `IndexSnapshot` captures stage-0
+  regular-file entries (oid + mode) of the source tree plus the root
+  `tsconfig.json` once; `IndexProvider` resolves reads by object id, so a
+  later `git add` cannot mix into the run. Missing, conflicted,
+  non-UTF-8, oversized, and non-regular (symlink 120000, gitlink) entries
+  are not resolvable → conservative `Unknown`; symlink entries get a note
+  diagnostic. `Repository` moves behind `Arc<Mutex<..>>` for the analysis
+  worker (blob reads by id cannot drift).
+- **Staged pipeline** (`analyze_staged`): the controller sources are
+  analyzed with the index provider; the staged `tsconfig.json` (parsed from
+  its blob) supplies `baseUrl`/`paths`; the extractor still seeds the
+  controller's own parse. `sync --staged` gate widened: staged `.ts` files
+  outside pruned dirs and `tsconfig.json` count as relevant changes, so a
+  staged DTO edit alone updates its importers' bodies. No relevant staged
+  change remains a clean no-op; the desired state is still the whole index.
+- **Tests** (+13): index/worktree divergence (index version wins, worktree
+  never leaks), staged DTO alone triggers and updates, unstaged worktree
+  edit does not leak, staged dependency deletion degrades, staged re-export
+  change propagates, symlink entry rejected with note, shared dependency
+  serves both controllers, staged tsconfig paths mapping, gate tests
+  (dependency `.ts` counts; data.json/dist/node_modules/README do not;
+  tsconfig counts). Gates: fmt + clippy `-D warnings` clean; 586 tests
+  pass (was 573).
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

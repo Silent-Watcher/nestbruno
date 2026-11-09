@@ -13,6 +13,7 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::config::Config;
 use crate::discovery::Matcher;
+use crate::resolve::provider::SourceProvider;
 use crate::resolve::tsconfig::TsConfig;
 
 /// Resolves a module specifier to a project-relative path.
@@ -23,7 +24,7 @@ pub fn resolve_module(
     config: &Config,
     matcher: &Matcher,
     tsconfig: Option<&TsConfig>,
-    project_root: &Path,
+    provider: &dyn SourceProvider,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     let from_dir = from_file.parent().unwrap_or(Path::new(""));
 
@@ -35,7 +36,7 @@ pub fn resolve_module(
             source_prefix,
             config,
             matcher,
-            project_root,
+            provider,
         )
     } else {
         // Bare specifier: try tsconfig paths, then baseUrl, then node_modules (deferred)
@@ -46,7 +47,7 @@ pub fn resolve_module(
             config,
             matcher,
             tsconfig,
-            project_root,
+            provider,
         )
     }
 }
@@ -58,7 +59,7 @@ fn resolve_relative(
     source_prefix: &Path,
     _config: &Config,
     matcher: &Matcher,
-    project_root: &Path,
+    provider: &dyn SourceProvider,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     // Build the candidate path relative to project root.
     // from_dir is project-relative and already includes source_prefix
@@ -87,7 +88,7 @@ fn resolve_relative(
     }
 
     // Try file candidates: .ts, /index.ts
-    try_file_candidates(&candidate, project_root)
+    try_file_candidates(&candidate, provider)
 }
 
 /// Resolve a bare specifier (not starting with ./ or ../).
@@ -98,7 +99,7 @@ fn resolve_bare(
     _config: &Config,
     matcher: &Matcher,
     tsconfig: Option<&TsConfig>,
-    project_root: &Path,
+    provider: &dyn SourceProvider,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     // Try tsconfig paths first
     if let Some(tsconfig) = tsconfig
@@ -107,7 +108,7 @@ fn resolve_bare(
         && let Some(resolved) = tsconfig.resolve_bare_specifier(specifier, Path::new(""))
         && is_within_project(&resolved)
         && !is_excluded(&resolved, source_prefix, matcher)
-        && let Some(found) = try_file_candidates(&resolved, project_root)?
+        && let Some(found) = try_file_candidates(&resolved, provider)?
     {
         return Ok(Some(found));
     }
@@ -119,7 +120,7 @@ fn resolve_bare(
         let candidate = Path::new(base_url).join(specifier);
         if is_within_project(&candidate)
             && !is_excluded(&candidate, source_prefix, matcher)
-            && let Some(found) = try_file_candidates(&candidate, project_root)?
+            && let Some(found) = try_file_candidates(&candidate, provider)?
         {
             return Ok(Some(found));
         }
@@ -134,44 +135,39 @@ fn resolve_bare(
 /// `.mjs` -> `.mts`, `.cjs` -> `.cts`), then `<path>.ts`, `<path>/index.ts`,
 /// `<path>` (if ends with .ts).
 ///
-/// Selection uses `symlink_metadata`, which never follows links: a symlinked
-/// candidate is selected deliberately so the containment validation in the
-/// resolver can reject it with a precise diagnostic. A bare `exists()` would
-/// follow links and silently hide symlink targets and loops behind `ELOOP`.
+/// Existence is asked from the source provider, which answers without
+/// following links: a symlinked candidate is selected deliberately so the
+/// provider's read can reject it with a precise diagnostic. A bare
+/// `exists()` would follow links and silently hide symlink targets and
+/// loops behind `ELOOP`.
 fn try_file_candidates(
     path: &Path,
-    project_root: &Path,
+    provider: &dyn SourceProvider,
 ) -> Result<Option<PathBuf>, ModuleResolveError> {
     let path_str = path.to_string_lossy();
 
     // With `moduleResolution: "NodeNext"`, specifiers must name the emitted
     // file (`./x.js`); the analyzed source is `./x.ts` behind it.
     for mapped in mapped_ts_sources(&path_str) {
-        let abs_mapped = project_root.join(&mapped);
-        if std::fs::symlink_metadata(&abs_mapped).is_ok() {
+        if provider.exists(Path::new(&mapped)) {
             return Ok(Some(PathBuf::from(mapped)));
         }
     }
 
-    // Construct absolute path for existence check
-    let abs_path = project_root.join(path);
-
     // 1. If it ends with .ts, try as-is
-    if path_str.ends_with(".ts") && std::fs::symlink_metadata(&abs_path).is_ok() {
+    if path_str.ends_with(".ts") && provider.exists(path) {
         return Ok(Some(path.to_path_buf()));
     }
 
     // 2. Try appending .ts (not replacing extension)
     let with_ts = PathBuf::from(format!("{}.ts", path_str));
-    let abs_with_ts = project_root.join(&with_ts);
-    if std::fs::symlink_metadata(&abs_with_ts).is_ok() {
+    if provider.exists(&with_ts) {
         return Ok(Some(with_ts));
     }
 
     // 3. Try as directory with index.ts
     let index_ts = path.join("index.ts");
-    let abs_index_ts = project_root.join(&index_ts);
-    if std::fs::symlink_metadata(&abs_index_ts).is_ok() {
+    if provider.exists(&index_ts) {
         return Ok(Some(index_ts));
     }
 
@@ -257,6 +253,10 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
 
+    fn disk_provider(root: &Path) -> crate::resolve::provider::DiskProvider {
+        crate::resolve::provider::DiskProvider::new(root).0
+    }
+
     fn setup_test_tree() -> (tempfile::TempDir, PathBuf, Config, Matcher, TsConfig) {
         let dir = tempdir().unwrap();
         let root = dir.path().to_path_buf();
@@ -312,7 +312,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         assert_eq!(
@@ -340,7 +340,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         assert_eq!(resolved, Some(PathBuf::from("src/users/dto/index.ts")));
@@ -371,7 +371,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         assert_eq!(
@@ -398,7 +398,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         assert_eq!(
@@ -418,7 +418,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         );
         assert!(matches!(resolved, Err(ModuleResolveError::EscapesProject)));
     }
@@ -437,7 +437,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         // Should be None because dist is excluded
@@ -462,7 +462,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         assert_eq!(
@@ -485,7 +485,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         assert_eq!(resolved, Some(PathBuf::from("src/users/dto/index.ts")));
@@ -510,7 +510,7 @@ mod tests {
                 &config,
                 &matcher,
                 Some(&tsconfig),
-                &root,
+                &disk_provider(&root),
             )
             .unwrap();
             assert_eq!(resolved, Some(PathBuf::from(expected)));
@@ -528,7 +528,7 @@ mod tests {
             &config,
             &matcher,
             Some(&tsconfig),
-            &root,
+            &disk_provider(&root),
         )
         .unwrap();
         assert_eq!(resolved, None);

@@ -9,6 +9,7 @@ pub mod containment;
 pub mod imports;
 pub mod limits;
 pub mod module;
+pub mod provider;
 pub mod tsconfig;
 pub mod zod;
 
@@ -18,10 +19,11 @@ use std::path::{Path, PathBuf};
 use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
 use crate::discovery::Matcher;
-use crate::resolve::containment::{DependencyPathError, validated_dependency_path};
+use crate::resolve::containment::DependencyPathError;
 use crate::resolve::imports::{ModuleImportsExports, extract_imports_exports};
 use crate::resolve::limits::*;
 use crate::resolve::module::{ModuleResolveError, resolve_module};
+use crate::resolve::provider::{DiskProvider, SourceProvider};
 use crate::resolve::tsconfig::TsConfig;
 use crate::resolve::zod::analyze_zod_program;
 use crate::route::RouteParameter;
@@ -51,18 +53,14 @@ pub enum DtoResolution {
 /// analysis snapshots each start fresh, which is also what keeps the cache
 /// from ever going stale).
 pub struct ResolverContext {
-    /// Canonical project root used for containment validation. `None` when
-    /// the root could not be canonicalized; every dependency read is then
-    /// rejected conservatively.
-    canonical_root: Option<PathBuf>,
+    /// Where dependency content comes from (working tree or Git index).
+    provider: Box<dyn SourceProvider>,
     /// Parsed tsconfig (if any).
     tsconfig: Option<TsConfig>,
     /// Cache of analyzed modules keyed by normalized project-relative path
     /// (the exact paths `module::resolve_module` produces: explicit `.ts`
     /// files or an `index.ts`, never directories or bare specifiers).
     module_cache: HashMap<PathBuf, ModuleAnalysis>,
-    /// Project root as given (for specifier resolution and diagnostics).
-    project_root: PathBuf,
     /// Dependency graph of this run: controller file -> the dependency module
     /// paths its cross-file resolutions touched (including modules that were
     /// resolved but unreadable, so that recreating them is observable).
@@ -90,30 +88,35 @@ pub struct ResolverContext {
 }
 
 impl ResolverContext {
-    /// Create the context for one analysis run over `project_root`.
+    /// Create the context for one analysis run over `project_root`, reading
+    /// dependencies from the working tree.
     pub fn new(project_root: &Path) -> Self {
         let tsconfig = TsConfig::load(project_root);
-        // Canonicalize once: every dependency read is validated against the
-        // canonical root so symlinked roots above it cannot relocate the
-        // containment boundary. If canonicalization fails, dependency reads
-        // are rejected conservatively (cross-file resolution degrades to
-        // BodyShape::Unknown, never to a guessed body).
-        let (canonical_root, initial_diagnostics) = match std::fs::canonicalize(project_root) {
-            Ok(root) => (Some(root), Vec::new()),
-            Err(_) => (
-                None,
-                vec![Diagnostic::new(
-                    Severity::Warning,
-                    Some(project_root.to_path_buf()),
-                    "cannot canonicalize project root; cross-file DTO resolution is disabled for this run",
-                )],
-            ),
-        };
+        let (provider, warning) = DiskProvider::new(project_root);
+        let diagnostics = warning
+            .map(|message| {
+                // Canonicalization failed: dependency reads are rejected
+                // conservatively (cross-file resolution degrades to
+                // BodyShape::Unknown, never to a guessed body).
+                Diagnostic::new(Severity::Warning, Some(project_root.to_path_buf()), message)
+            })
+            .into_iter()
+            .collect();
+        Self::with_parts(Box::new(provider), tsconfig, diagnostics)
+    }
+
+    /// Create a context with an explicit dependency source — the Git-index
+    /// provider for staged analysis — and an explicit tsconfig (the
+    /// index-derived one, when the staged snapshot has one).
+    pub fn with_parts(
+        provider: Box<dyn SourceProvider>,
+        tsconfig: Option<TsConfig>,
+        initial_diagnostics: Vec<Diagnostic>,
+    ) -> Self {
         Self {
-            canonical_root,
+            provider,
             tsconfig,
             module_cache: HashMap::new(),
-            project_root: project_root.to_path_buf(),
             dependency_edges: HashMap::new(),
             edge_uncertain: BTreeSet::new(),
             current_attribution: None,
@@ -271,7 +274,7 @@ impl<'ctx> DtoResolver<'ctx> {
             self.config,
             self.matcher,
             self.ctx.tsconfig.as_ref(),
-            &self.ctx.project_root,
+            self.ctx.provider.as_ref(),
         ) {
             Ok(Some(path)) => Some(path),
             Ok(None) => None,
@@ -324,14 +327,22 @@ impl<'ctx> DtoResolver<'ctx> {
             return None;
         }
 
-        // Containment validation: the path must name a regular file under the
-        // canonical project root without traversing any symlink. Rejections
-        // are conservative (no partial results, no reads outside the root).
-        let canonical_root = self.ctx.canonical_root.clone()?;
-        let abs_path = match validated_dependency_path(&canonical_root, module_path) {
-            Ok(path) => path,
+        // Validated read through the source provider: containment for the
+        // working tree (canonical root, symlink-free components, regular
+        // file), mode checks for index blobs. Rejections are conservative
+        // (no partial results, no reads outside the boundary).
+        let source = match self.ctx.provider.read(module_path) {
+            Ok(s) => s,
             Err(DependencyPathError::NotFound(_)) => {
                 self.add_diagnostic(Severity::Warning, module_path, "dependency file not found");
+                return None;
+            }
+            Err(DependencyPathError::Io(_)) => {
+                self.add_diagnostic(
+                    Severity::Warning,
+                    module_path,
+                    "cannot read dependency file",
+                );
                 return None;
             }
             Err(reason) => {
@@ -339,19 +350,6 @@ impl<'ctx> DtoResolver<'ctx> {
                     Severity::Warning,
                     module_path,
                     format!("rejected dependency path: {reason}"),
-                );
-                return None;
-            }
-        };
-
-        // Read source
-        let source = match std::fs::read_to_string(&abs_path) {
-            Ok(s) => s,
-            Err(_) => {
-                self.add_diagnostic(
-                    Severity::Warning,
-                    module_path,
-                    "cannot read dependency file",
                 );
                 return None;
             }

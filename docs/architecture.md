@@ -205,7 +205,9 @@ containment.rs` gates every dependency read on canonical-root, symlink-free,
 regular-file containment).
 
 Known deferred edges (tracked in `KNOWN_ISSUES.md`): the validation/read
-race on concurrently modified trees, Watch Mode dependency invalidation, and
-Git-index-only staged dependency resolution (staged analysis intentionally
-resolves same-file DTOs only). Full details are in
-[Phase 11](phases/phase-11-cross-file-dto-resolution.md).
+race on concurrently modified trees. Watch Mode dependency invalidation and
+Git-index-only staged dependency resolution shipped on 2026-11-10
+(Milestones 11.1.3–11.1.4): watch keeps the recorded reverse dependency
+index, and staged analysis reads dependencies through the
+`SourceProvider` boundary from captured index blobs only. Full details are
+in [Phase 11](phases/phase-11-cross-file-dto-resolution.md).

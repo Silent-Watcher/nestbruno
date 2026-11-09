@@ -135,10 +135,12 @@ Still open (deferred; the accepted limitations of the shipped feature):
   edges when an analysis failed or an import specifier led nowhere. Covered
   by workspace unit tests, dependency e2e tests, and a deterministic
   incremental ≡ fresh-sync equivalence test.
-- **Staged dependencies not wired.** `sync --staged` analyzes controller
-  blobs from the index without project context, so cross-file resolution
-  is disabled there (same-file DTOs only). This is the safe behavior until
-  an index-only source provider exists.
+- ~~Staged dependencies not wired~~ — resolved 2026-11-10 (Milestone
+  11.1.4): `staged::IndexProvider` reads dependency content only from the
+  captured index snapshot (stage-0 regular blobs by object id); the staged
+  gate also fires for staged `.ts` dependency files and `tsconfig.json`;
+  symlink/non-regular entries are rejected; index/worktree divergence,
+  deletions, re-export changes and shared dependencies are pinned by tests.
 - **Zod analyzer gaps.** Multi-step transformation chains are not
   recognized (only a single transformation applied to a base schema
   identifier); `z.infer` resolves only against same-file const schemas

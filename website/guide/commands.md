@@ -66,6 +66,9 @@ committed. Behavior:
 - a staged addition/modification updates requests from the staged content;
 - a staged deletion reconciles its requests;
 - a staged rename updates requests in place;
+- imported DTOs are resolved from staged content as well, never from the
+  working tree; a staged DTO edit alone (with no staged controller) still
+  updates the requests of its importers;
 - if nothing relevant is staged, it is a clean no-op;
 - Git is never modified, and the working-tree version of a staged file is
   never read.

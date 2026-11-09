@@ -21,16 +21,23 @@
 //! exactly like source files. Nothing here spawns a process, runs a hook, or
 //! writes to the repository: the index is only ever read.
 
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use git2::{Delta, DiffFindOptions, DiffOptions, Repository};
+use git2::{Delta, DiffFindOptions, DiffOptions, Oid, Repository};
 
 use crate::config::Config;
 use crate::diag::{Diagnostic, Severity};
 use crate::discovery::Matcher;
 use crate::error::Error;
 use crate::nest::extract::{MAX_SOURCE_BYTES, too_large};
+use crate::nest::{Analysis, analyze_sources_with_context};
 use crate::project::Project;
+use crate::resolve::ResolverContext;
+use crate::resolve::containment::DependencyPathError;
+use crate::resolve::provider::SourceProvider;
+use crate::resolve::tsconfig::TsConfig;
 
 /// One staged change to a relevant source file, in project-relative paths.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,12 +86,75 @@ pub struct Staged {
     pub sources: Vec<(PathBuf, String)>,
     /// Recoverable problems (unreadable blobs, conflicts, odd paths).
     pub diagnostics: Vec<Diagnostic>,
+    /// The index snapshot the sources and cross-file dependency reads come
+    /// from. `None` only while the staged state is empty (no analysis runs).
+    pub index: Option<IndexSnapshot>,
 }
 
 impl Staged {
     /// Whether anything staged can affect the routes.
     pub fn is_empty(&self) -> bool {
         self.changes.is_empty()
+    }
+}
+
+/// The immutable index snapshot cross-file dependency resolution reads from.
+///
+/// Entries are the stage-0 regular-file blobs of the source tree (and the
+/// root `tsconfig.json`), captured once. Blobs are content-addressed: a read
+/// by object id returns exactly what the snapshot staged, even if `git add`
+/// runs afterwards.
+#[derive(Clone)]
+pub struct IndexSnapshot {
+    repo: Arc<Mutex<Repository>>,
+    /// Project-relative path -> (blob id, mode). Regular entries only.
+    entries: HashMap<PathBuf, (Oid, u32)>,
+}
+
+impl std::fmt::Debug for IndexSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IndexSnapshot")
+            .field("entries", &self.entries.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The Git-index source provider for staged analysis.
+///
+/// Every read is a validated blob lookup in the snapshot: entries outside the
+/// snapshot (never staged, deleted from the index, or of an unsupported
+/// mode) do not exist; a staged file is never replaced by its working-tree
+/// counterpart.
+pub struct IndexProvider {
+    snapshot: IndexSnapshot,
+}
+
+impl SourceProvider for IndexProvider {
+    fn exists(&self, path: &Path) -> bool {
+        self.snapshot.entries.contains_key(path)
+    }
+
+    fn read(&self, path: &Path) -> Result<String, DependencyPathError> {
+        let &(id, _mode) = self
+            .snapshot
+            .entries
+            .get(path)
+            .ok_or_else(|| DependencyPathError::NotFound(path.to_path_buf()))?;
+        let repo = self
+            .snapshot
+            .repo
+            .lock()
+            .map_err(|_| DependencyPathError::Io(path.to_path_buf()))?;
+        let blob = repo
+            .find_blob(id)
+            .map_err(|_| DependencyPathError::Io(path.to_path_buf()))?;
+        let bytes = blob.content();
+        if bytes.len() > MAX_SOURCE_BYTES {
+            return Err(DependencyPathError::Io(path.to_path_buf()));
+        }
+        std::str::from_utf8(bytes)
+            .map(str::to_owned)
+            .map_err(|_| DependencyPathError::Io(path.to_path_buf()))
     }
 }
 
@@ -142,6 +212,13 @@ pub fn staged_sources(project: &Project, matcher: &Matcher) -> Result<Staged, Er
     }
     // The desired state is the whole index, not just the changed files:
     // reconciliation needs the complete route set to detect stale requests.
+    let entries = collect_snapshot(
+        &index,
+        &root_in_workdir,
+        matcher,
+        project.config(),
+        &mut staged,
+    );
     collect_sources(
         &repo,
         &index,
@@ -150,6 +227,12 @@ pub fn staged_sources(project: &Project, matcher: &Matcher) -> Result<Staged, Er
         project.config(),
         &mut staged,
     );
+    staged.index = Some(IndexSnapshot {
+        // The handle moves behind the lock for the analysis worker; blob
+        // reads are by object id, so the snapshot cannot drift.
+        repo: Arc::new(Mutex::new(repo)),
+        entries,
+    });
     Ok(staged)
 }
 
@@ -213,9 +296,24 @@ fn collect_changes(
             continue;
         };
         let Some(source_relative) = source_relative(&project_relative, config) else {
+            // Outside the source directory: only the root tsconfig matters
+            // (its `paths`/`baseUrl` mappings steer import resolution).
+            if project_relative != Path::new("tsconfig.json") {
+                continue;
+            }
+            staged.changes.push(StagedChange {
+                path: project_relative,
+                status,
+            });
             continue;
         };
-        if !matcher.is_relevant(&source_relative) {
+        // A change is relevant when it touches a controller candidate, or a
+        // dependency a cross-file resolution could read (any TypeScript file
+        // in the source tree outside pruned directories): a staged DTO edit
+        // alone changes the desired bodies of its importers.
+        let relevant =
+            matcher.is_relevant(&source_relative) || could_be_dependency(matcher, &source_relative);
+        if !relevant {
             continue;
         }
         staged.changes.push(StagedChange {
@@ -225,6 +323,64 @@ fn collect_changes(
     }
     staged.changes.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(())
+}
+
+/// Whether a source-relative path is a file cross-file resolution could read:
+/// TypeScript, in a directory discovery would enter.
+fn could_be_dependency(matcher: &Matcher, source_relative: &Path) -> bool {
+    source_relative.extension().is_some_and(|ext| ext == "ts")
+        && !source_relative
+            .ancestors()
+            .skip(1)
+            .any(|ancestor| !ancestor.as_os_str().is_empty() && matcher.is_pruned_dir(ancestor))
+}
+
+/// Capture the immutable snapshot cross-file dependency resolution reads:
+/// the stage-0 regular-file entries of the source tree plus the root
+/// `tsconfig.json`. Non-regular entries (symlinks, submodules) are rejected
+/// here — recorded as notes, never resolved.
+fn collect_snapshot(
+    index: &git2::Index,
+    root_in_workdir: &Path,
+    matcher: &Matcher,
+    config: &Config,
+    staged: &mut Staged,
+) -> HashMap<PathBuf, (Oid, u32)> {
+    let mut entries = HashMap::new();
+    for entry in index.iter() {
+        let Ok(text) = std::str::from_utf8(&entry.path) else {
+            continue;
+        };
+        let workdir_relative = Path::new(text);
+        let Some(project_relative) = project_path(workdir_relative, root_in_workdir, staged) else {
+            continue;
+        };
+        let in_scope = source_relative(&project_relative, config)
+            .is_some_and(|source_relative| could_be_dependency(matcher, &source_relative))
+            || project_relative == Path::new("tsconfig.json");
+        if !in_scope {
+            continue;
+        }
+        // Stage 0 only: conflicted paths have no readable staged content.
+        let Some(stage0) = index.get_path(workdir_relative, 0) else {
+            continue;
+        };
+        // Regular blobs only: symlink (120000) and gitlink (160000) entries
+        // are unsupported sources and are never followed.
+        if !matches!(stage0.mode, 0o100_644 | 0o100_755) {
+            staged.diagnostics.push(Diagnostic::new(
+                Severity::Note,
+                Some(project_relative.clone()),
+                format!(
+                    "the index entry is not a regular file (mode {:o}); it is not analyzed",
+                    stage0.mode
+                ),
+            ));
+            continue;
+        }
+        entries.insert(project_relative, (stage0.id, stage0.mode));
+    }
+    entries
 }
 
 /// Read the staged content of every relevant index entry.
@@ -370,6 +526,42 @@ fn source_relative(project_relative: &Path, config: &Config) -> Option<PathBuf> 
     } else {
         Some(rest)
     }
+}
+
+/// Analyze the staged sources with cross-file DTO resolution against the
+/// captured index: every dependency read is a snapshot blob, never a
+/// working-tree file, so the analysis cannot mix the two states. The staged
+/// `tsconfig.json` (when staged) supplies `baseUrl`/`paths`.
+pub fn analyze_staged(project: &Project, staged: &Staged) -> Result<Analysis, Error> {
+    let Some(snapshot) = &staged.index else {
+        // No staged state: no analysis runs (the command is a no-op).
+        return Ok(Analysis::default());
+    };
+    let tsconfig = match staged
+        .index
+        .as_ref()
+        .and_then(|snapshot| snapshot.entries.get(Path::new("tsconfig.json")).copied())
+    {
+        Some((id, _)) => {
+            let repo = snapshot.repo.lock().map_err(|_| Error::GitRepository {
+                repo: project.root().to_owned(),
+                message: "the index snapshot lock is poisoned".to_owned(),
+            })?;
+            let blob = repo.find_blob(id).map_err(|err| Error::GitRepository {
+                repo: project.root().to_owned(),
+                message: format!("cannot read the staged tsconfig.json: {err}"),
+            })?;
+            std::str::from_utf8(blob.content())
+                .ok()
+                .and_then(TsConfig::parse)
+        }
+        None => None,
+    };
+    let provider = Box::new(IndexProvider {
+        snapshot: snapshot.clone(),
+    });
+    let mut context = ResolverContext::with_parts(provider, tsconfig, Vec::new());
+    analyze_sources_with_context(&staged.sources, project, &mut context)
 }
 
 #[cfg(test)]
@@ -562,12 +754,38 @@ export class UsersController {
         fixture.stage("README.md", b"# not a controller".as_slice());
         fixture.stage("node_modules/x/users.controller.ts", CONTROLLER.as_bytes());
         fixture.stage("other/thing.ts", b"export const x = 1;".as_slice());
-        fixture.stage("src/helper.ts", b"export const y = 1;".as_slice());
+        fixture.stage("src/dist/thing.ts", b"export const y = 1;".as_slice());
 
         let staged = staged_of(&fixture);
         assert!(staged.is_empty(), "{:?}", staged.changes);
         assert!(staged.sources.is_empty());
         assert!(staged.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn a_staged_dependency_file_counts_as_a_relevant_change() {
+        let fixture = Fixture::new();
+        // Not a controller candidate, but a file cross-file resolution reads.
+        fixture.stage("src/helper.ts", b"export const y = 1;".as_slice());
+        let staged = staged_of(&fixture);
+        assert_eq!(staged.changes.len(), 1, "{:?}", staged.changes);
+        assert_eq!(staged.changes[0].path, Path::new("src/helper.ts"));
+
+        // After committing, a non-TypeScript dependency is not a change on
+        // its own.
+        fixture.commit("initial");
+        fixture.stage("src/data.json", b"{}".as_slice());
+        let staged = staged_of(&fixture);
+        assert!(staged.is_empty(), "{:?}", staged.changes);
+    }
+
+    #[test]
+    fn a_staged_tsconfig_counts_as_a_relevant_change() {
+        let fixture = Fixture::new();
+        fixture.stage("tsconfig.json", b"{ \"compilerOptions\": {} }".as_slice());
+        let staged = staged_of(&fixture);
+        assert_eq!(staged.changes.len(), 1, "{:?}", staged.changes);
+        assert_eq!(staged.changes[0].path, Path::new("tsconfig.json"));
     }
 
     #[test]
@@ -689,5 +907,283 @@ export class UsersController {
         assert!(!is_plain(Path::new("/abs/x.ts")));
         assert!(!is_plain(Path::new("")));
         assert!(!is_plain(Path::new("a/../b.ts")));
+    }
+
+    // ---------------------------------------------------- cross-file resolution
+
+    const DTO_CONTROLLER: &str = "\
+import { Controller, Post, Body } from '@nestjs/common';
+import { CreateUserDto } from './dto/create-user.dto';
+
+@Controller('users')
+export class UsersController {
+  @Post()
+  create(@Body() dto: CreateUserDto) {}
+}
+";
+
+    /// One controller whose `@Post` body type comes from a separate module.
+    fn staged_of_with(fixture: &Fixture, files: &[(&str, &[u8])]) -> Staged {
+        for (rel, content) in files {
+            fixture.stage(rel, content);
+        }
+        staged_of(fixture)
+    }
+
+    /// The body shape of the first route of the first analyzed controller.
+    fn first_body(analysis: &Analysis) -> String {
+        let route = analysis
+            .controllers
+            .first()
+            .and_then(|controller| controller.routes.first())
+            .expect("one analyzed route");
+        format!("{:?}", route.body)
+    }
+
+    #[test]
+    fn cross_file_dto_resolves_from_the_index_not_the_worktree() {
+        let fixture = Fixture::new();
+        let dto_committed = b"export class CreateUserDto {\n  name: string;\n  email: string;\n}\n";
+        let dto_staged =
+            b"export class CreateUserDto {\n  name: string;\n  email: string;\n  age: number;\n}\n";
+        let dto_worktree = b"export class CreateUserDto {\n  totally: string;\n}\n";
+        // Index: controller + DTO version A (committed, then the DTO is
+        // re-staged with different content so a change exists).
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", DTO_CONTROLLER.as_bytes()),
+                ("src/dto/create-user.dto.ts", dto_committed),
+            ],
+        );
+        fixture.commit("initial");
+        fixture.stage("src/dto/create-user.dto.ts", dto_staged);
+        // The working tree holds something else entirely; it must never leak.
+        let _ = std::fs::write(
+            fixture._dir.path().join("src/dto/create-user.dto.ts"),
+            dto_worktree,
+        );
+
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        let body = first_body(&analysis);
+        assert!(body.contains("\"name\""), "{body}");
+        assert!(body.contains("\"email\""), "{body}");
+        assert!(body.contains("\"age\""), "{body}");
+        assert!(!body.contains("totally"), "{body}");
+    }
+
+    #[test]
+    fn a_staged_dto_alone_updates_the_importing_controller() {
+        let fixture = Fixture::new();
+        let dto_v1 = b"export class CreateUserDto {\n  name: string;\n}\n";
+        let dto_v2 = b"export class CreateUserDto {\n  name: string;\n  age: number;\n}\n";
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", DTO_CONTROLLER.as_bytes()),
+                ("src/dto/create-user.dto.ts", dto_v1),
+            ],
+        );
+        fixture.commit("initial");
+
+        // Nothing staged: a no-op.
+        assert!(staged_of(&fixture).is_empty());
+
+        // Only the DTO is staged; no controller file is.
+        fixture.stage("src/dto/create-user.dto.ts", dto_v2);
+        let staged = staged_of(&fixture);
+        assert!(!staged.is_empty(), "a staged dependency alone is relevant");
+        let project = fixture.project();
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        assert!(first_body(&analysis).contains("\"age\""));
+    }
+
+    #[test]
+    fn an_unstaged_worktree_dependency_edit_does_not_leak_in() {
+        let fixture = Fixture::new();
+        let dto_index = b"export class CreateUserDto {\n  name: string;\n}\n";
+        let dto_worktree = b"export class CreateUserDto {\n  leaked: string;\n}\n";
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", DTO_CONTROLLER.as_bytes()),
+                ("src/dto/create-user.dto.ts", dto_index),
+            ],
+        );
+        fixture.commit("initial");
+        // A staged controller change; the DTO edit stays in the worktree.
+        fixture.stage(
+            "src/users.controller.ts",
+            DTO_CONTROLLER.replace("'users'", "'clients'").as_bytes(),
+        );
+        let _ = std::fs::write(
+            fixture._dir.path().join("src/dto/create-user.dto.ts"),
+            dto_worktree,
+        );
+
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        let body = first_body(&analysis);
+        assert!(body.contains("\"name\""), "{body}");
+        assert!(!body.contains("leaked"), "{body}");
+    }
+
+    #[test]
+    fn a_staged_dependency_deletion_degrades_the_body() {
+        let fixture = Fixture::new();
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", DTO_CONTROLLER.as_bytes()),
+                (
+                    "src/dto/create-user.dto.ts",
+                    b"export class CreateUserDto {\n  name: string;\n}\n",
+                ),
+            ],
+        );
+        fixture.commit("initial");
+        fixture.unstage(Path::new("src/dto/create-user.dto.ts"));
+
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        assert!(!staged.is_empty());
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        assert!(
+            first_body(&analysis).contains("Unknown"),
+            "the deleted dependency degrades to the conservative shape"
+        );
+    }
+
+    #[test]
+    fn a_staged_reexport_change_propagates_to_the_body() {
+        let fixture = Fixture::new();
+        let controller = DTO_CONTROLLER.replace("from './dto/create-user.dto'", "from './dto'");
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", controller.as_bytes()),
+                (
+                    "src/dto/index.ts",
+                    b"export { CreateUserDto } from './create-user.dto';\n",
+                ),
+                (
+                    "src/dto/create-user.dto.ts",
+                    b"export class CreateUserDto {\n  name: string;\n}\n",
+                ),
+            ],
+        );
+        fixture.commit("initial");
+        // The barrel now re-exports something else: the import dangles.
+        fixture.stage("src/dto/index.ts", b"export { Other } from './other';\n");
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        assert!(first_body(&analysis).contains("Unknown"));
+    }
+
+    #[test]
+    fn a_symlink_index_entry_is_never_resolved() {
+        let fixture = Fixture::new();
+        staged_of_with(
+            &fixture,
+            &[("src/users.controller.ts", DTO_CONTROLLER.as_bytes())],
+        );
+        // A symlink entry (mode 120000) pointing outside the tree.
+        let id = fixture.repo.blob(b"/etc/passwd".as_slice()).expect("blob");
+        let mut index = fixture.repo.index().expect("index");
+        let entry = git2::IndexEntry {
+            ctime: git2::IndexTime::new(0, 0),
+            mtime: git2::IndexTime::new(0, 0),
+            dev: 0,
+            ino: 0,
+            mode: 0o120_000,
+            uid: 0,
+            gid: 0,
+            file_size: 11,
+            id,
+            flags: 0,
+            flags_extended: 0,
+            path: b"src/dto/create-user.dto.ts".to_vec(),
+        };
+        index
+            .add_frombuffer(&entry, b"/etc/passwd".as_slice())
+            .expect("stage symlink entry");
+        index.write().expect("write index");
+
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        assert!(
+            staged
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("not a regular file")),
+            "{:?}",
+            staged.diagnostics
+        );
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        assert!(first_body(&analysis).contains("Unknown"));
+    }
+
+    #[test]
+    fn a_shared_dependency_serves_all_staged_controllers() {
+        let fixture = Fixture::new();
+        let dto = b"export class CreateUserDto {\n  name: string;\n}\n";
+        let second = DTO_CONTROLLER.replace("'users'", "'clients'");
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", DTO_CONTROLLER.as_bytes()),
+                ("src/clients.controller.ts", second.as_bytes()),
+                ("src/dto/create-user.dto.ts", dto),
+            ],
+        );
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        assert_eq!(analysis.controllers.len(), 2);
+        for controller in &analysis.controllers {
+            let route = &controller.routes[0];
+            assert!(
+                format!("{:?}", route.body).contains("\"name\""),
+                "{:?}",
+                route.body
+            );
+        }
+    }
+
+    #[test]
+    fn a_staged_tsconfig_supplies_path_mappings() {
+        let fixture = Fixture::new();
+        let tsconfig =
+            br#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@dto/*": ["src/dto/*"] } } }"#;
+        let controller = DTO_CONTROLLER.replace(
+            "from './dto/create-user.dto'",
+            "from '@dto/create-user.dto'",
+        );
+        staged_of_with(
+            &fixture,
+            &[
+                ("src/users.controller.ts", controller.as_bytes()),
+                (
+                    "src/dto/create-user.dto.ts",
+                    b"export class CreateUserDto {\n  name: string;\n}\n",
+                ),
+                ("tsconfig.json", tsconfig),
+            ],
+        );
+        let project = fixture.project();
+        let matcher = Matcher::new(project.config()).expect("matcher");
+        let staged = staged_sources(&project, &matcher).expect("staged");
+        let analysis = analyze_staged(&project, &staged).expect("analysis");
+        assert!(first_body(&analysis).contains("\"name\""));
     }
 }

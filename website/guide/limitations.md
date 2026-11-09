@@ -30,9 +30,10 @@ NestBruno reflects what is statically visible in decorators. Not modelled:
   recorded an import of it (added 2026-11-10). A file that no analysis ever
   recorded as a dependency is not watched as one; its importers pick the
   change up when the controller itself changes (the safe fallback).
-- **`sync --staged` resolves same-file DTOs only** — cross-file imports are
-  not resolved from the Git index snapshot (dependency content would mix
-  index and working-tree state).
+- **`sync --staged` dependency scope** — cross-file imports resolve from
+  the captured Git index snapshot only; dependencies that were never staged
+  into the index (or whose entries are conflicted or non-regular) are not
+  resolvable and degrade to the conservative unknown shape.
 - **No environment or `folder.bru`** — `baseUrl` must be defined by you.
 - **Output verified with Bruno's parser library**, not by opening the
   desktop app; Windows/macOS are exercised in CI but were developed on

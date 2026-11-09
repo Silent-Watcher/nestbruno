@@ -73,6 +73,10 @@ milestone (owner-authorized master prompt, 2026-11-10):
    controller → dependency graph, reverse index in watch, dependent
    scheduling with conservative merge (failed/uncertain analyses keep their
    edges), e2e + equivalence coverage.
+4. 11.1.4 Git-index source provider and staged cross-file resolution —
+   completed 2026-11-10: `SourceProvider` boundary (disk / index), staged
+   analysis resolves dependencies from the captured index only, widened
+   staged gate (staged `.ts` dependencies and `tsconfig.json`).
 4. 11.1.4 Git-index-only source provider; cross-file resolution for
    `sync --staged` (index/worktree divergence must resolve to the index
    version).
