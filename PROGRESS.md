@@ -427,6 +427,36 @@ deferred work, then Phase 12 (global prefix/URI versioning) and Phase 13
   build passes.
 - Gates: fmt + clippy `-D warnings` clean; 610 tests pass (was 598).
 
+### Phase 12 — Global prefix and URI versioning (completed 2026-11-10, released 0.4.0)
+
+- Bootstrap analysis (`src/nest/app.rs`): bounded discovery (optional
+  `bootstrap` config key, then `src/main.ts`/`main.ts`); `setGlobalPrefix`
+  with statically matchable exclude rules (exact/trailing-`*`, optional
+  `{path, method}`); `enableVersioning` with URI provenance checks,
+  `VERSION_NEUTRAL`, string/array defaults; non-URI strategies identified,
+  never rendered as URLs.
+- Composition in the extractor: `/{prefix}/v{n}/{controller}/{method}`,
+  NestJS precedence, one route variant per declared version. No new IR
+  fields. Without a bootstrap configuration the output is byte-identical
+  to 0.3.0.
+- Tests: 8 bootstrap unit tests + 7 real-binary acceptance tests
+  (`tests/app_config.rs`). Record:
+  `docs/phases/phase-12-global-prefix-versioning.md`. Accepted gap: watch
+  does not watch the bootstrap file (KNOWN_ISSUES).
+
+### Phase 13 — Query and param DTO resolution (completed 2026-11-10, released 0.5.0)
+
+- `RouteParameter.fields`: resolved property names of unnamed
+  `@Query()`/`@Param()` object parameters — same-file at extraction,
+  cross-file in the existing resolver pass (gate widened beyond unknown
+  bodies).
+- Query fields become disabled, empty `params:query` entries, deduplicated
+  against named ones; param fields are matched against URL-derived path
+  parameters (URL stays authoritative; extra DTO fields documented, no
+  invented placeholders).
+- Tests: 3 end-to-end (`tests/cross_file.rs`). Record:
+  `docs/phases/phase-13-query-param-dtos.md`.
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing
