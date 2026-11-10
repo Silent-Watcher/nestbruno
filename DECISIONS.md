@@ -37,6 +37,7 @@ requires a concrete reason recorded next to the phase doc.
 | 28 | `verify` is the sync pipeline run as a dry run plus reporting — no second reconciliation algorithm; drift exits 1 by reusing the existing `FAILURE` code, conflicts/incompleteness exit 4 (Phase 14.2, `commands.rs`) | one code path cannot diverge from sync's guarantees; no invented exit codes (master-prompt rule); CI needs only "non-zero" |
 | 29 | JSON output is a presentation layer of DTOs built from the existing results (`output.rs`), never a second result model | Phase 14.1 | no duplicated business logic; documents stay consistent with sync/verify semantics |
 | 30 | `explain` derives route resolution by splitting the composed path with the extractor's composition rules and verifies every split against the bootstrap configuration; unprovable fragments become limitations, not guesses (no IR extension) | Phase 15, `explain.rs` | the analyzer stays untouched; the explanation can only claim what the stored results prove |
+| 31 | Environment files are create-if-absent, never merged or rewritten (the Bruno environment format has no `docs` block, so the ownership stamp cannot attach); discovery scans generated requests only, placeholders are always empty, and nothing of the analyzed application is read | Phase 16, `bruno/environment.rs`, `writer.rs` | the project's "never destroy user data" rule wins over auto-updates; no secret can enter a generated file by construction |
 
 ## Deliberately *not* decided / open
 

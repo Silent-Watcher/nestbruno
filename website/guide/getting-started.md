@@ -65,8 +65,10 @@ first.
 ### 3. Open it in Bruno
 
 Open the `bruno/` directory in Bruno. Define `baseUrl` in a Bruno
-environment (NestBruno deliberately creates no environment file) and the
-requests are ready: URLs with <span v-pre>`{{baseUrl}}`</span>, path parameters listed in
+environment (create one yourself, or let NestBruno generate an empty one
+with `nestbruno generate --environments` — see
+[Commands](/guide/commands#nestbruno-generate-force-environments-names))
+and the requests are ready: URLs with <span v-pre>`{{baseUrl}}`</span>, path parameters listed in
 `params:path`, query/header parameters visible but disabled, a JSON body
 skeleton for `@Body` handlers.
 

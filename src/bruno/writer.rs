@@ -433,6 +433,89 @@ fn default_permissions() -> Option<fs::Permissions> {
     None
 }
 
+/// Outcome of writing environment files.
+#[derive(Debug, Default)]
+pub struct EnvironmentReport {
+    /// Environment files created by this run.
+    pub created: Vec<PathBuf>,
+    /// Environment files that already existed (never modified, never read).
+    pub existing: Vec<PathBuf>,
+    /// Environment files that could not be written, with the reason.
+    pub failed: Vec<(PathBuf, String)>,
+}
+
+impl EnvironmentReport {
+    /// Whether anything could not be written.
+    pub fn has_failures(&self) -> bool {
+        !self.failed.is_empty()
+    }
+}
+
+/// Write one environment file per name below `root/bruno_dir/environments`.
+///
+/// `content` is the exact file content (the same for every environment:
+/// one shared registry, structurally identical files). The write is
+/// **create-if-absent only**: an existing environment file is user-owned
+/// (the Bruno environment format has no `docs` block, so the generated-file
+/// stamp cannot attach to it) and is never modified, merged or deleted —
+/// not even with `force`. Environment names must be single safe path
+/// components; a rejected name writes nothing.
+pub fn write_environments(
+    root: &Path,
+    bruno_dir: &Path,
+    names: &[String],
+    content: &str,
+) -> Result<EnvironmentReport, Error> {
+    let mut report = EnvironmentReport::default();
+    let bruno_components = relative_components(bruno_dir).ok_or_else(|| Error::UnsafeOutput {
+        path: bruno_dir.to_owned(),
+        reason: "the collection directory must be a relative path without '..'".to_owned(),
+    })?;
+    let collection = ensure_dir(root, &bruno_components).map_err(|reason| Error::UnsafeOutput {
+        path: bruno_dir.to_owned(),
+        reason,
+    })?;
+    // Validate every name before creating anything: a rejected name must
+    // not leave an environments directory (or anything else) behind.
+    for name in names {
+        if let Err(reason) = check_component(name) {
+            report.failed.push((
+                bruno_dir.join("environments").join(format!("{name}.bru")),
+                format!("invalid environment name: {reason}"),
+            ));
+        }
+    }
+    if !report.failed.is_empty() {
+        return Ok(report);
+    }
+
+    let environments = ensure_dir(
+        &collection,
+        std::slice::from_ref(&"environments".to_owned()),
+    )
+    .map_err(|reason| Error::UnsafeOutput {
+        path: bruno_dir.join("environments"),
+        reason,
+    })?;
+
+    for name in names {
+        let rel = bruno_dir.join("environments").join(format!("{name}.bru"));
+        let file_name = format!("{name}.bru");
+        match write_file(&environments, &file_name, content, false, true) {
+            Ok(FileStatus::Created) => report.created.push(rel),
+            // Unchanged (identical) or SkippedExisting (differing): in both
+            // cases the existing file stays exactly as it is.
+            Ok(FileStatus::Unchanged | FileStatus::SkippedExisting) => report.existing.push(rel),
+            Ok(status) => report.failed.push((
+                rel,
+                format!("unexpected write status {status:?}; please report a bug"),
+            )),
+            Err(reason) => report.failed.push((rel, reason)),
+        }
+    }
+    Ok(report)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -819,5 +902,120 @@ mod tests {
         }
         fs::set_permissions(&folder, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(leftovers(dir.path()).is_empty());
+    }
+
+    // ---- environment files (Phase 16)
+
+    fn env_names(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn environment_files_are_created_with_the_exact_content() {
+        let dir = project();
+        let report = write_environments(
+            dir.path(),
+            Path::new("bruno"),
+            &env_names(&["development"]),
+            "vars {\n  baseUrl: \n}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            report.created,
+            [PathBuf::from("bruno/environments/development.bru")]
+        );
+        assert_eq!(
+            read(dir.path(), "bruno/environments/development.bru"),
+            "vars {\n  baseUrl: \n}\n"
+        );
+        // The same content again: reported as existing, never rewritten.
+        let report = write_environments(
+            dir.path(),
+            Path::new("bruno"),
+            &env_names(&["development"]),
+            "vars {\n  baseUrl: \n}\n",
+        )
+        .unwrap();
+        assert!(report.created.is_empty());
+        assert_eq!(
+            report.existing,
+            [PathBuf::from("bruno/environments/development.bru")]
+        );
+    }
+
+    #[test]
+    fn an_existing_environment_file_is_never_modified_even_with_user_values() {
+        let dir = project();
+        let path = dir.path().join("bruno/environments/development.bru");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let user_content = "vars {\n  baseUrl: http://secret-host:9999\n  stale_var: keep me\n}\n";
+        fs::write(&path, user_content).unwrap();
+        let before_mtime = fs::metadata(&path).unwrap().modified().unwrap();
+
+        let report = write_environments(
+            dir.path(),
+            Path::new("bruno"),
+            &env_names(&["development"]),
+            "vars {\n  baseUrl: \n}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            report.existing,
+            [PathBuf::from("bruno/environments/development.bru")]
+        );
+        assert!(report.created.is_empty());
+        assert_eq!(fs::read_to_string(&path).unwrap(), user_content);
+        assert_eq!(
+            fs::metadata(&path).unwrap().modified().unwrap(),
+            before_mtime
+        );
+    }
+
+    #[test]
+    fn an_unsafe_environment_name_writes_nothing() {
+        let dir = project();
+        for name in ["../evil", "a/b", "", ".", ".."] {
+            let report = write_environments(
+                dir.path(),
+                Path::new("bruno"),
+                &env_names(&[name]),
+                "vars {\n}\n",
+            )
+            .unwrap();
+            assert_eq!(report.failed.len(), 1, "{name}");
+            assert!(report.created.is_empty());
+        }
+        assert!(!dir.path().join("evil.bru").exists());
+        assert!(!dir.path().join("b.bru").exists());
+        // A rejected name creates nothing at all — not even the directory.
+        assert!(!dir.path().join("bruno/environments").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_environment_file_swapped_for_a_symlink_is_refused() {
+        use std::os::unix::fs::symlink;
+        let dir = project();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("victim.bru"), "precious").unwrap();
+        fs::create_dir_all(dir.path().join("bruno/environments")).unwrap();
+        symlink(
+            outside.path().join("victim.bru"),
+            dir.path().join("bruno/environments/development.bru"),
+        )
+        .unwrap();
+
+        let report = write_environments(
+            dir.path(),
+            Path::new("bruno"),
+            &env_names(&["development"]),
+            "vars {\n}\n",
+        )
+        .unwrap();
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(
+            fs::read_to_string(outside.path().join("victim.bru")).unwrap(),
+            "precious"
+        );
     }
 }

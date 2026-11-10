@@ -162,6 +162,18 @@ as limitations), extracted metadata, the findings checklist and the
 diagnostics of the controller's file. JSON output follows the Phase 14
 `--format json` contract. Version bumped to 0.6.0.
 
+## Phase 16 — Environment generation — Completed (2026-11-10)
+
+Owner-approved master prompt (2026-11-10), security-first per the owner.
+Discovery scans the generated requests for `{{variable}}` references (the
+prompt's service-code sources would require a second analysis pipeline and
+are a documented limitation); `nestbruno generate --environments [NAMES]`
+writes `environments/<name>.bru` files with empty placeholders from one
+shared registry. Existing environment files are user-owned and never
+modified (no stamp is possible in the Bruno environment format); unsafe
+names write nothing; nothing of the analyzed application (`.env`, runtime
+values) is ever read. Version bumped to 0.7.0.
+
 ## Cross-phase notes
 
 - Phase 6 documents a measurement-motivated candidate (restrict watch

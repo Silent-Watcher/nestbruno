@@ -22,6 +22,7 @@
 //! No `folder.bru` is generated: Bruno shows the directory name, and a
 //! `folder.bru` would be a file users customize (headers, auth, scripts).
 
+pub mod environment;
 pub mod identity;
 pub mod model;
 pub mod naming;

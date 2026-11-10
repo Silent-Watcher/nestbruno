@@ -79,6 +79,11 @@
   one route's identification, path resolution, metadata and warnings from
   the existing analysis results (no second analyzer); unprovable
   resolution fragments are reported as limitations, never guesses.
+- **Phase 16 (Environment generation):** shipped. `generate --environments
+  [NAMES]` discovers the `{{variables}}` referenced by generated requests
+  and writes Bruno environment files with empty placeholders; existing
+  environment files are never modified; nothing is read from the analyzed
+  application, so no secret can enter a generated file.
 - **Phase 11 (cross-file class/interface + Zod DTO resolution):** shipped in
   v0.2.0. Resolves `@Body` DTO declarations across local imports: relative
   paths (including NodeNext `.js`/`.mjs`/`.cjs` specifier extensions),
@@ -109,6 +114,7 @@
 | `verify [--staged]` | Works (14.2): read-only drift check reusing the sync pipeline as a dry run; exit 0 in sync, 1 out of sync (CI), 4 conflicts/incomplete; never creates or modifies anything. |
 | `completions <shell>` | Works (14.3): prints a Bash/Zsh/Fish/PowerShell completion script to stdout; installs nothing. |
 | `explain <SELECTOR>` | Works (Phase 15): explains one route (selector by `METHOD /path` or `--controller`/`--handler`, optional `--file`); read-only; exit 0 found / 1 missing-or-ambiguous / 2 usage / 4 incomplete. |
+| `generate --environments [NAMES]` | Works (Phase 16): writes `environments/<name>.bru` with empty placeholders for the variables the generated requests reference; create-if-absent only, existing files never touched; exit 4 on write failures. |
 | `watch [--debounce MS]` | Works: initial sync, then incremental synchronization on change until Ctrl-C/SIGTERM. |
 
 ## Current limitations
@@ -147,6 +153,13 @@
 - Cross-file resolution is disabled in `sync --staged` (same-file DTOs
   only), and watch mode does not re-analyze controllers when only an
   imported dependency file changes.
+- Environment generation discovers only `{{variable}}` references in
+  generated request URLs (the `base_url` template today). `process.env`
+  usage in service/runtime code is outside the analyzer's boundary and is
+  not discovered; environment variables from `@Headers` parameters are
+  not generated (the analyzer does not invent a header-to-variable
+  mapping). Existing environment files are never updated with newly
+  discovered variables — they are reported instead.
 - Output verified with Bruno's parser library, not by opening the desktop app.
 - Benchmarks: Criterion suite in `benches/pipeline.rs` (five benchmarks,
   including cross-file DTO resolution). Older ad-hoc measurements in the

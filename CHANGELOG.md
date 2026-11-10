@@ -4,6 +4,27 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-11-10
+
+Phase 16 — environment generation.
+
+### Added
+
+- **Environment generation** (`nestbruno generate --environments [NAMES]`):
+  discovers the `{{variable}}` references the generated requests actually
+  emit (today: the configured `base_url` template) and creates
+  `environments/<name>.bru` files with **empty placeholders** — comma
+  separated names, one shared registry, structurally identical files,
+  deterministic sorted output. Security posture: nothing is ever read from
+  the analyzed application (no `.env` files, no runtime values), so no
+  secret can enter a generated file by construction; values are never
+  inferred (a `{{ process.env.X }}` expression is reported as an
+  unsupported reference with its name only, and no file is written).
+  Existing environment files are user-owned (the Bruno environment format
+  has no docs block, so the ownership stamp cannot attach): they are
+  never modified, merged or deleted — not even with `--force`; a rejected
+  environment name writes nothing at all.
+
 ## [0.6.0] — 2026-11-10
 
 Phase 14 (CLI & CI developer experience) and the Explain command.

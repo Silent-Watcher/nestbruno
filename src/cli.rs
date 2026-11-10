@@ -39,7 +39,7 @@ pub struct Cli {
     pub command: Command,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Debug, PartialEq, Eq, Subcommand)]
 pub enum Command {
     /// Create a nestbruno.toml with the default settings.
     Init,
@@ -65,6 +65,19 @@ pub enum Command {
         /// Replace existing request files whose content differs.
         #[arg(long)]
         force: bool,
+        /// Also generate Bruno environment files (`environments/<name>.bru`)
+        /// with an empty placeholder for every variable the generated
+        /// requests reference. Comma-separated names; without a value the
+        /// single environment "development" is generated. Existing
+        /// environment files are never modified.
+        #[arg(
+            long,
+            value_name = "NAMES",
+            value_delimiter = ',',
+            num_args = 0..=1,
+            default_missing_value = "development"
+        )]
+        environments: Option<Vec<String>>,
     },
     /// Synchronize the NestJS routes with the Bruno collection.
     ///
@@ -169,10 +182,39 @@ mod tests {
     #[test]
     fn generate_accepts_force() {
         let cli = Cli::try_parse_from(["nestbruno", "generate"]).unwrap();
-        assert!(matches!(cli.command, Command::Generate { force: false }));
+        assert!(matches!(
+            cli.command,
+            Command::Generate {
+                force: false,
+                environments: None
+            }
+        ));
         let cli = Cli::try_parse_from(["nestbruno", "generate", "--force"]).unwrap();
-        assert!(matches!(cli.command, Command::Generate { force: true }));
+        assert!(matches!(
+            cli.command,
+            Command::Generate {
+                force: true,
+                environments: None
+            }
+        ));
         assert!(Cli::try_parse_from(["nestbruno", "--force", "check"]).is_err());
+        let cli = Cli::try_parse_from(["nestbruno", "generate", "--environments"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Command::Generate {
+                force: false,
+                environments: Some(vec!["development".to_owned()])
+            }
+        );
+        let cli = Cli::try_parse_from(["nestbruno", "generate", "--environments", "dev,staging"])
+            .unwrap();
+        assert_eq!(
+            cli.command,
+            Command::Generate {
+                force: false,
+                environments: Some(vec!["dev".to_owned(), "staging".to_owned()])
+            }
+        );
     }
 
     #[test]

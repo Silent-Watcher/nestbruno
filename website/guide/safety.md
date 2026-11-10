@@ -64,6 +64,17 @@ edges:
   could point the resolver at a file outside it. Hardening this is a
   recorded follow-up; nothing is ever executed regardless of what is read.
 
+## Environment files never carry secrets
+
+Generated environment files (`nestbruno generate --environments`) contain
+**empty placeholders by construction**: NestBruno reads nothing of your
+application — no `.env` files, no runtime values — so no secret can enter
+a generated file. A `{{ process.env.X }}` reference is reported as a
+warning with its name only. Once an environment file exists it is
+user-owned: it is never modified, merged or deleted, not even with
+`--force`, so your credentials cannot be overwritten. Committing
+environments is your choice; keep real secrets out of Git.
+
 ## Your files are never clobbered
 
 - Writes are atomic: content is fully built and validated in memory, then

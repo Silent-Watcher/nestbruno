@@ -506,6 +506,60 @@ requested.
 - Docs: CHANGELOG (0.6.0), STATUS, ROADMAP, `docs/project-status.md`,
   `DECISIONS.md` (rows 28–30), `website/guide/commands.md`.
 
+### Phase 16 — Environment generation (completed 2026-11-10)
+
+Owner-approved master prompt (approval received for the recommended
+minimal scope; the owner made security the first priority). Version bump
+to 0.7.0 per the semver-per-phase rule. Not committed: the master prompt
+forbids commits unless explicitly requested.
+
+- Architecture finding honored: the analyzer parses controller classes
+  only; the prompt's service-code discovery sources (fetch calls, header
+  maps, payload objects, `process.env` in services) would require a
+  second analysis pipeline and are documented as a limitation instead of
+  being approximated. The grounded discovery source is the `{{variable}}`
+  references the generated requests actually emit (today: the
+  configured `base_url` template — the project's existing env-variable
+  convention).
+- `src/bruno/environment.rs` (new): scan of generated request content for
+  `{{name}}` references; `EnvironmentRegistry` with one definition per
+  name (dedup by identity), aggregated sorted usages, `required` for URL
+  variables, `default` always `None` (values are never inferred); name
+  validation (letters, digits, `_`, `-`, `.`; expressions like
+  `{{ process.env.X }}` become warnings with names only).
+- `bruno/writer.rs`: `write_environments` — create-if-absent only (the
+  Bruno environment format has no `docs` block, so the ownership stamp
+  cannot attach: an existing environment file is user-owned and is never
+  modified, merged or deleted, not even with `--force`); every name is
+  validated before anything is created, so a rejected name leaves no
+  directory or file behind; atomic writes and symlink refusal reuse the
+  existing writer primitives.
+- CLI: `generate --environments [NAMES]` (comma-separated via
+  `value_delimiter`, `default_missing_value = "development"`; no flag ⇒
+  no environment files, fully backward compatible). Summary line reports
+  created/existing counts and the variable count; env write failures
+  count as incomplete (exit 4), consistent with generate's per-file
+  error policy.
+- Security (owner's first priority, all enforced by construction):
+  nothing of the analyzed application is read (no `.env`, no runtime
+  values); placeholders are empty; diagnostics carry names only; existing
+  credentials cannot be overwritten; no `.gitignore` changes (documented
+  as the user's choice).
+- Tests: 7 unit (`bruno/environment.rs`: discovery, dedup, ordering,
+  name validation, unsupported-reference warnings, deterministic
+  content) + 4 writer tests (exact content, idempotent re-run reported
+  as existing, user values never modified even with force (mtime
+  compared), unsafe names write nothing, symlink refusal) + 11
+  integration (`tests/environments.rs`: creation, multi-environment
+  determinism, literal base URL, multiple variables sorted, expression
+  reference reported not generated, unsafe name, user ownership across
+  sync/dry-run/verify/generate --force, backward compatibility,
+  sync PRESERVE reporting). Gates: fmt + clippy `-D warnings` clean;
+  712 tests pass (was 690).
+- Docs: CHANGELOG (0.7.0), STATUS, ROADMAP, `docs/project-status.md`,
+  `DECISIONS.md` (row 31), `website/guide/commands.md`,
+  `website/guide/getting-started.md`, `website/guide/safety.md`.
+
 #### Milestone 14.1 — Machine-readable JSON output (completed 2026-11-10)
 
 - `src/output.rs` (new): presentation-only serde DTOs built from the

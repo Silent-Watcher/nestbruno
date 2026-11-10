@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use crate::bruno::generate;
-use crate::bruno::writer::{FileStatus, WriteReport, write_collection};
+use crate::bruno::writer::{EnvironmentReport, FileStatus, WriteReport, write_collection};
 use crate::cli::{Cli, Command, OutputFormat};
 use crate::config::{CONFIG_FILE_NAME, CONFIG_TEMPLATE};
 use crate::diag::Reporter;
@@ -39,7 +39,10 @@ pub fn execute(cli: &Cli, out: &mut dyn Write, reporter: &Reporter) -> Result<Ou
         Command::Check => check(cli, out, reporter).map(|()| Outcome::Success),
         Command::Discover { format } => discover(cli, *format, out, reporter),
         Command::Routes { format } => routes(cli, *format, out, reporter),
-        Command::Generate { force } => generate_command(cli, *force, out, reporter),
+        Command::Generate {
+            force,
+            environments,
+        } => generate_command(cli, *force, environments.clone(), out, reporter),
         Command::Sync {
             dry_run,
             staged: staged_only,
@@ -268,6 +271,7 @@ fn write_routes(out: &mut dyn Write, controller: &Controller) -> std::io::Result
 fn generate_command(
     cli: &Cli,
     force: bool,
+    environments: Option<Vec<String>>,
     out: &mut dyn Write,
     reporter: &Reporter,
 ) -> Result<Outcome, Error> {
@@ -287,6 +291,53 @@ fn generate_command(
         )?
     };
 
+    // Environment files (Phase 16): created only when absent, with empty
+    // placeholders. Values are never invented, and an existing environment
+    // file is user-owned — reported, never modified.
+    let environment_report = environments
+        .filter(|_| !generation.requests.is_empty())
+        .map(
+            |names| -> Result<Option<(Vec<String>, usize, EnvironmentReport)>, Error> {
+                let registry =
+                    crate::bruno::environment::collect_environment_variables(&generation.requests);
+                for diagnostic in &registry.diagnostics {
+                    reporter.report(diagnostic);
+                }
+                if registry.variables.is_empty() {
+                    reporter.verbose(format_args!(
+                        "no environment variables referenced; no environment files written"
+                    ));
+                    return Ok(None);
+                }
+                let mut names: Vec<String> = names
+                    .into_iter()
+                    .map(|name| name.trim().to_owned())
+                    .filter(|name| !name.is_empty())
+                    .collect();
+                names.sort();
+                names.dedup();
+                if names.is_empty() {
+                    return Err(Error::Usage {
+                        message: "no valid environment names given".to_owned(),
+                    });
+                }
+                let content = crate::bruno::environment::environment_content(&registry.variables)
+                    .map_err(|reason| Error::UnsafeOutput {
+                    path: project.config().bruno.clone(),
+                    reason,
+                })?;
+                let report = crate::bruno::writer::write_environments(
+                    project.root(),
+                    &project.config().bruno,
+                    &names,
+                    &content,
+                )?;
+                Ok(Some((names, registry.variables.len(), report)))
+            },
+        )
+        .transpose()?
+        .flatten();
+
     let diagnostics = discovery
         .diagnostics
         .iter()
@@ -299,6 +350,45 @@ fn generate_command(
     }
     for diagnostic in generation.diagnostics.iter().chain(&report.diagnostics) {
         generation_failed |= diagnostic.severity == crate::diag::Severity::Error;
+    }
+
+    // Environment summary, only when the flag was used.
+    let mut environments_failed = false;
+    if let Some((names, variables, env_report)) = &environment_report {
+        for (path, reason) in &env_report.failed {
+            reporter.report(&crate::diag::Diagnostic::new(
+                crate::diag::Severity::Error,
+                Some(path.clone()),
+                format!("environment file not written: {reason}"),
+            ));
+        }
+        environments_failed = env_report.has_failures();
+        let mut parts = Vec::new();
+        if !env_report.created.is_empty() {
+            parts.push(format!("{} created", env_report.created.len()));
+        }
+        if !env_report.existing.is_empty() {
+            parts.push(format!(
+                "{} already exist(s) (not modified)",
+                env_report.existing.len()
+            ));
+        }
+        if env_report.failed.is_empty() && parts.is_empty() {
+            parts.push("none written".to_owned());
+        }
+        writeln!(
+            out,
+            "Environments ({}): {} — {} variable(s): {}",
+            names.join(", "),
+            parts.join(", "),
+            variables,
+            if env_report.failed.is_empty() {
+                "placeholders are empty; fill in your values"
+            } else {
+                "some files were not written (see the error diagnostics)"
+            }
+        )
+        .map_err(Error::Output)?;
     }
 
     for (path, status) in &report.files {
@@ -326,7 +416,8 @@ fn generate_command(
     let incomplete = discovery.is_incomplete()
         || analysis.is_incomplete()
         || generation_failed
-        || report.has_failures();
+        || report.has_failures()
+        || environments_failed;
     Ok(if incomplete {
         Outcome::Incomplete
     } else {

@@ -1,14 +1,16 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, v0.6.0 (Phase 14 + Explain command implemented, pending release).*
+*Last updated: 2026-11-10, v0.7.0 (Phase 14 + Explain command + Environment generation implemented, pending release).*
 
 ## One-paragraph state
 
-The product is at **v0.6.0** with Phases 11.1, 12, 13 complete, Phase 14
+The product is at **v0.7.0** with Phases 11.1, 12, 13 complete, Phase 14
 (CLI & CI developer experience: `--format json`, read-only `verify`, shell
-completions, a GitHub Actions workflow template) complete, and the
-owner-approved Explain command (Phase 15, master prompt of 2026-11-10,
-Option A: no IR changes) implemented on top. Milestone 11.1.1: dependency reads are gated by
+completions, a GitHub Actions workflow template) complete, the owner-approved
+Explain command (Phase 15, Option A: no IR changes) and the security-first
+Environment generation (Phase 16, owner-approved proposal; discovery from
+generated requests only, empty placeholders, create-if-absent) implemented
+on top. Milestone 11.1.1: dependency reads are gated by
 canonical-root, symlink-free, regular-file containment and all resolver
 budgets are enforced. Milestone 11.1.2: cross-file resolution is run-scoped —
 one `ResolverContext` per analysis run shares the module cache across
@@ -41,7 +43,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 
 - `cargo fmt --check` — pass
 - `cargo clippy --all-targets --all-features -- -D warnings` — pass (0 warnings)
-- `cargo test --all-features` — pass, 690 tests (662 after Phase 14; +28 for the Explain command)
+- `cargo test --all-features` — pass, 712 tests (690 after Phase 15; +22 for Environment generation)
 - `cargo build --release` — pass
 
 ## What the current product state supports
@@ -52,7 +54,7 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
 | `check` | validates config + source directory |
 | `discover` | lists Controller candidate files; `--format json` (Phase 14.1) |
 | `routes` | prints routes, params and source locations; `--format json` |
-| `generate [--force]` | writes `.bru` requests with parameter metadata and cross-file DTO/Zod body skeletons |
+| `generate [--force]` | writes `.bru` requests with parameter metadata and cross-file DTO/Zod body skeletons; `--environments [NAMES]` (Phase 16) generates Bruno environment files with empty placeholders, never modifying existing ones |
 | `sync [--dry-run]` | reconciles generated requests; preserves conflicts and user edits; `--format json` |
 | `sync --staged [--dry-run]` | reconstructs desired state from the Git index for relevant Controller files; `--format json` |
 | `verify [--staged]` | read-only drift check reusing the sync pipeline as a dry run; exit 0/1/4; `--format json` |
@@ -77,6 +79,13 @@ Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
   pipeline and explains identification, path resolution, metadata and
   warnings; `--format json`; ambiguous/missing selectors exit 1, malformed
   selectors exit 2. Version bumped to 0.6.0 per the semver-per-phase rule.
+- Environment generation done (Phase 16, security-first per the owner):
+  `generate --environments [NAMES]` discovers the `{{variables}}` the
+  generated requests reference and writes `environments/<name>.bru` with
+  empty placeholders; existing environment files are never modified (no
+  stamp is possible in the Bruno environment format), unsafe names write
+  nothing, and no value is ever read from or invented for the analyzed
+  application. Version bumped to 0.7.0.
 
 **New in Phase 11 (shipped in v0.2.0):**
 - Cross-file class/interface DTO resolution from imports in Controller files

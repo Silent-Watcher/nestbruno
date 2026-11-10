@@ -118,7 +118,7 @@ GET /users/:id  UsersController.findOne  src/users/users.controller.ts:12:3
 
 This is a diagnostic text format for humans, not a stable machine interface.
 
-## `nestbruno generate [--force]`
+## `nestbruno generate [--force] [--environments [NAMES]]`
 
 The blunt tool: writes a request file for every generatable route.
 
@@ -129,6 +129,41 @@ The blunt tool: writes a request file for every generatable route.
 
 Prefer `sync` — `generate` exists for forcing a clean rewrite of
 unmodified-generated content and for bootstrapping.
+
+### `--environments [NAMES]`
+
+Also generates Bruno environment files for the variables the generated
+requests reference:
+
+```bash
+nestbruno generate --environments                  # one environment: development
+nestbruno generate --environments dev,staging,prod # several environments
+```
+
+- The discovery scans the **generated requests** for <span v-pre>`{{variable}}`</span>
+  references — today that is the configured `base_url` template (default
+  <span v-pre>`{{baseUrl}}`</span>). One shared registry: the same variable referenced by
+  many requests produces exactly one definition.
+- Every generated file contains **empty placeholders**:
+
+```bru
+vars {
+  baseUrl: 
+}
+```
+
+- **Security by construction:** nothing of your application is read — no
+  `.env` files, no runtime values, no inference. A <span v-pre>`{{ process.env.X }}`</span>
+  reference is a code expression, not a Bruno variable: it is reported as
+  a warning (name only, never a value) and no file is written. Values are
+  never invented; you fill them in.
+- **Existing environment files are never modified, merged or deleted** —
+  not even with `--force`. The Bruno environment format carries no
+  ownership stamp, so an environment file is user-owned the moment it
+  exists; newly discovered variables are reported instead of written.
+- Deterministic: identical input produces byte-identical files, variables
+  sorted by name. An invalid environment name (e.g. `../evil`) writes
+  nothing at all.
 
 ## `nestbruno sync [--dry-run]`
 
