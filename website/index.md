@@ -165,4 +165,18 @@ how NestBruno knows what it owns and what you own. Hand-written requests
 and files you edited are preserved and reported as conflicts, never
 overwritten.
 
+## Give Your AI Agent NestBruno Knowledge
+
+Install the official Agent Skill and your coding agent learns to operate
+NestBruno: inspect NestJS routes and DTO metadata through machine-readable
+JSON, keep Bruno collections in sync safely, and generate or update
+accurate API documentation from verified results — instead of guessing
+from decorators.
+
+<AgentSkillInstall />
+
+The skill ships from this repository — no npm package, no extra install.
+See the [Agent Skill guide](/guide/agent-skill) for what the agent learns
+and how to use it.
+
 </div>

@@ -13,6 +13,7 @@ export default defineConfig({
       { text: 'Guide', link: '/guide/' },
       { text: 'Commands', link: '/guide/commands' },
       { text: 'Configuration', link: '/guide/configuration' },
+      { text: 'Agent Skill', link: '/guide/agent-skill' },
       { text: 'Phases', link: '/phases/' }
     ],
     logo: '/logo.svg',
@@ -31,6 +32,7 @@ export default defineConfig({
             { text: 'Synchronization Model', link: '/guide/synchronization' },
             { text: 'Watch Mode', link: '/guide/watch-mode' },
             { text: 'CI (GitHub Actions)', link: '/guide/github-actions' },
+            { text: 'Agent Skill', link: '/guide/agent-skill' },
             { text: 'Safety & Ownership', link: '/guide/safety' },
             { text: 'Benchmarks', link: '/guide/benchmarks' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },

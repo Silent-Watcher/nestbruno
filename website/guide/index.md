@@ -49,5 +49,8 @@ repository and fast enough for watch mode.
   global prefix and URI-versioning configuration.
 - [Synchronization](/guide/synchronization) — what sync creates, updates, deletes and refuses to touch.
 - [Watch Mode](/guide/watch-mode) — live synchronization while you code.
+- [CI (GitHub Actions)](/guide/github-actions) — verification-only CI workflow.
+- [Agent Skill](/guide/agent-skill) — teach AI coding agents to document
+  your API with NestBruno.
 - [Safety & Ownership](/guide/safety) — the guarantees, in detail.
 - [Benchmarks](/guide/benchmarks) — measured performance and methodology.
