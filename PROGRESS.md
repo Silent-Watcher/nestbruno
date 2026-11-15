@@ -671,6 +671,69 @@ forbids commits unless explicitly requested.
   passes.
 - Docs: CHANGELOG (Unreleased), STATUS, `docs/project-status.md`.
 
+### Agent Skill and website integration (2026-11-15, not a numbered phase)
+
+Owner master prompt of 2026-11-15: create an installable Agent Skill for
+NestBruno and integrate it into the VitePress website. No Rust changes;
+no commits (prompt forbids them); no version bump (the crate is
+unchanged).
+
+- `skills/nestbruno/SKILL.md` (new, 245 lines): frontmatter `name:
+  nestbruno` + activation-covering `description`, validated by YAML parse
+  (PyYAML; no dedicated validator exists in-tree — the manifest and
+  directory layout were validated directly, per the prompt's fallback
+  rule). Body covers: what NestBruno is; the Bruno-collection-vs-documentation
+  distinction; mandatory project inspection before use (version check,
+  `check` when configured, no silent installs, no unprompted `init`);
+  the verified command table (read-only vs mutating); `--format json`
+  usage with the five document shapes, stdout/stderr separation, exit
+  codes (0/1/2/3/4) and the `complete`/`diagnostics` contract; the
+  six-step documentation workflow; accuracy rules (static-only,
+  field-names-only DTOs, no response/auth inference, unknown stays
+  unknown, incomplete ≠ complete); collection safety rules
+  (`verify`/`--dry-run` first, no casual `--force`, ownership preserved).
+  Every command and flag was verified against `src/cli.rs` and
+  `website/guide/commands.md`; `--format` is not documented for `init`,
+  `check`, `generate`, `completions` or `watch` (they have none).
+- Website component `website/.vitepress/theme/AgentSkillInstall.vue`
+  (new): reusable copy-to-clipboard install element — exact command
+  `npx skills add Silent-Watcher/nestbruno --skill nestbruno` rendered as
+  selectable text, "Copy install command" button, temporary "Copied ✓"
+  state, Clipboard API inside the click handler only (SSR-safe), legacy
+  `execCommand` fallback, and selection of the visible command as the
+  manual-copy last resort; `aria-live` status, keyboard-focusable, scoped
+  styles matching the existing brand variables. Registered in
+  `theme/index.ts` next to `NestBrunoLogo`.
+- `website/index.md`: new landing section "Give Your AI Agent NestBruno
+  Knowledge" with the component and a link to the guide page; hero,
+  features and existing sections untouched.
+- `website/guide/agent-skill.md` (new): what the skill is, the problem it
+  solves, use cases, what the agent learns, the command table, the
+  documentation workflow, installation (project-scoped default, `-g`
+  global), example prompts, updating by re-running the install command,
+  and honest limitations/safety. Links to Commands, DTO Resolution,
+  Prefix & Versioning and Safety & Ownership.
+- `website/.vitepress/config.mts`: "Agent Skill" added to the top nav and
+  to the Guide sidebar (after CI). `website/guide/index.md`: "Where to go
+  next" cross-link added.
+- Installation command verified against the repository remote
+  (`https://github.com/Silent-Watcher/nestbruno.git`).
+- Verification: `node_modules` was missing; installed with `npm ci` from
+  the existing lockfile (stated openly, no package added or updated).
+  Baseline build before any change: exit 0 with two pre-existing SSR
+  TypeErrors (`guide_github-actions.md.js` reads `temp`,
+  `guide_safety.md.js` reads `env` — raw `${{ ... }}`/`{{ ... }}`
+  sequences evaluated as Vue interpolation). Post-change build: exit 0,
+  no new SSR errors, dead-link check passes (`ignoreDeadLinks: false`);
+  rendered HTML in `dist/` contains the exact install command and the
+  "Copy install command" button on both the landing page and the guide
+  page.
+- Discovered drift (recorded in KNOWN_ISSUES.md, not silently fixed):
+  README.md's Limitations section still claims "Staged sync resolves
+  same-file DTOs only" and "watch mode does not yet invalidate" — both
+  contradict shipped Milestones 11.1.3/11.1.4; KNOWN_ISSUES.md's trailing
+  "test coverage" bullet is similarly stale.
+
 ## Known gaps inside completed phases
 
 See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for the verified list; the user-facing

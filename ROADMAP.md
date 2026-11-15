@@ -176,6 +176,12 @@ values) is ever read. Version bumped to 0.7.0.
 
 ## Cross-phase notes
 
+- **Agent Skill deliverable (2026-11-15, owner master prompt; not a
+  numbered phase):** installable `skills/nestbruno/SKILL.md` distributed
+  from the repository via the Skills CLI (not the crate, no npm package),
+  website integration with a copy-to-clipboard install command
+  (`website/guide/agent-skill.md`), and the usual context-file
+  synchronization. No Rust changes; Phase 10 remains not started.
 - Phase 6 documents a measurement-motivated candidate (restrict watch
   reconciliation to affected routes); it is not scheduled independently.
 - Update `STATUS.md`, `PROGRESS.md`, `KNOWN_ISSUES.md`, `DECISIONS.md`,

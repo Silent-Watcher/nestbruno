@@ -23,6 +23,33 @@ tooling mismatch, not a runtime bug. Runtime known issues: none known.
    duplicated debounce default removed from the code (single
    `WatchOptions::DEFAULT_DEBOUNCE_MS`).
 
+## Documentation drift (found 2026-11-15, Agent Skill deliverable)
+
+Found while cross-checking claims for `skills/nestbruno/SKILL.md` and the
+website pages; recorded per the master prompt ("document it rather than
+silently expanding the scope") instead of being fixed outside the task's
+scope:
+
+1. **README.md Limitations section contradicts shipped Milestones
+   11.1.3/11.1.4.** It still says "Staged sync resolves same-file DTOs
+   only" and "watch mode does not yet invalidate controllers when an
+   imported DTO file changes", but watch dependency invalidation and
+   staged cross-file resolution shipped in 11.1 (see STATUS.md and
+   PROGRESS.md). Fix those two lines on the next documentation pass.
+2. **KNOWN_ISSUES.md trailing "test coverage" bullet is stale** (below):
+   it claims comprehensive `.bru` integration tests, reverse-dependency
+   watch tests, staged divergence tests and resolver property tests are
+   "still missing", but Milestone 11.1.6 added the real-binary pipeline
+   suite (`tests/cross_file.rs`) and property coverage. Re-scope the
+   bullet on the next pass.
+3. **Pre-existing VitePress SSR warnings:** `website/guide/github-actions.md`
+   (raw `${{ runner.temp }}`) and `website/guide/safety.md` (raw
+   `{{ ... }}` sequence) are evaluated as Vue interpolation during
+   `npm run build`, printing two `TypeError`s each build (reading 'temp' /
+   reading 'env'). The build still exits 0 and the pages render; wrap the
+   sequences in `v-pre` on the next documentation pass. No new SSR
+   warnings were introduced by the Agent Skill pages.
+
 ## Claims not reproducible from the repository
 
 These are documented, plausible, but unverifiable in-tree; treat as

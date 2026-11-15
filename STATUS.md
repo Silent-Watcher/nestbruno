@@ -1,6 +1,6 @@
 # STATUS.md — current project snapshot
 
-*Last updated: 2026-11-10, v0.7.0 (Phase 14 + Explain command + Environment generation implemented, pending release).*
+*Last updated: 2026-11-15, v0.7.0 (released) + Agent Skill deliverable: Phases 14, 15 (Explain) and 16 (Environments) shipped; installable Agent Skill added 2026-11-15.*
 
 ## One-paragraph state
 
@@ -29,7 +29,13 @@ is complete — provenance-checked `z.infer` (forward references and
 cross-file schemas), multi-step transformation chains, namespace-imported
 `createZodDto`, and `package.json` `imports` local subpaths.
 Phases 1–9 and 11 are complete in the committed history; Phase 10 remains
-**OpenAPI interoperability** and has not started.
+**OpenAPI interoperability** and has not started. On 2026-11-15 the
+repository gained an installable **Agent Skill**
+(`skills/nestbruno/SKILL.md`, distributed from the repository via the
+Skills CLI — it is not part of the published crate) plus website
+integration (landing section, `website/guide/agent-skill.md`, a
+copy-to-clipboard install component) that teach AI coding agents to
+operate the CLI and document NestJS APIs from verified results.
 
 ## Repository snapshot
 

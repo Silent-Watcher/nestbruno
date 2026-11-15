@@ -4,6 +4,23 @@ All notable changes to NestBruno are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Agent Skill** (`skills/nestbruno/SKILL.md`): an installable skill for
+  AI coding agents that teaches them to operate NestBruno — inspect
+  NestJS routes and DTO metadata through `--format json`, verify the
+  Bruno collection read-only, document APIs from verified results, and
+  respect the analysis limits and collection-safety rules. Distributed
+  from this repository via the Skills CLI
+  (`npx skills add Silent-Watcher/nestbruno --skill nestbruno`); it is
+  not part of the published crate and no npm package is published.
+- **Website integration:** a dedicated guide page
+  (`website/guide/agent-skill.md`, linked from the top navigation and
+  sidebar), a landing-page section, and a reusable copy-to-clipboard
+  install component rendering the same command on both pages.
+
 ## [0.7.0] — 2026-11-10
 
 Phase 16 — environment generation.

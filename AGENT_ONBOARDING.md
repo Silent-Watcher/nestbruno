@@ -30,7 +30,11 @@ Phases 11.1 (resolver completion), 12 (global prefix and URI versioning)
 and 13 (query/param DTO resolution) are **complete, verified and shipped**:
 v0.3.0, v0.4.0 and v0.5.0 (see `STATUS.md` and `docs/phases/
 phase-11.1-resolver-completion.md`, `phase-12-global-prefix-versioning.md`,
-`phase-13-query-param-dtos.md`). Phase 10 remains **OpenAPI
+`phase-13-query-param-dtos.md`). Phases 14–16 and the Explain command are
+shipped in 0.6.0/0.7.0. The 2026-11-15 Agent Skill deliverable (owner
+master prompt) added the installable `skills/nestbruno/SKILL.md` plus
+website integration — see the PROGRESS.md section "Agent Skill and
+website integration". Phase 10 remains **OpenAPI
 interoperability** and has not started — do not begin it without owner
 authorization.
 
@@ -58,8 +62,12 @@ short-lived; preserve the 64-property limit and the enforced budgets
 
 ## Current working tree
 
-Clean as of the 2026-11-09 documentation pass. Phase 11 implementation was
-committed as `d7bc701`; version 0.2.0 packaging as `3c0dbf5`.
+Contains the uncommitted 2026-11-15 Agent Skill deliverable
+(`skills/nestbruno/`, website pages/component, context files — the master
+prompt forbids commits) plus a pre-existing `.gitignore` modification
+(adds `.mimosa`) that must be preserved. Before that: clean as of the
+2026-11-09 documentation pass; Phase 11 implementation was committed as
+`d7bc701`; version 0.2.0 packaging as `3c0dbf5`.
 
 ## Quality and safety rules
 
